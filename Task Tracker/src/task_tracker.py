@@ -9,6 +9,7 @@ Desc. :
 
 import json
 import sys
+from datetime import datetime
 
 # Read json into dict
 PATH = "data/data.json"
@@ -62,7 +63,9 @@ def run(args, error):
 
             task = {"id": f"{get_max_id() + 1}",
                     "description": f"{args.task_body}",
-                    "status": "todo"}
+                    "status": "todo",
+                    "createdAt": f"{datetime.now().ctime()}",
+                    "updatedAt": f"{datetime.now().ctime()}"}
 
             tasks.append(task)
 
@@ -82,6 +85,7 @@ def run(args, error):
                     if int(args.id) == int(task['id']):
                         # Set new Body
                         task["description"] = new_body
+                        task["updatedAt"] = datetime.now().ctime()
 
                         # Report to user
                         print(f"Updated \'{task['description']}\'"
