@@ -1,0 +1,15 @@
+
+{% extends 'base.html' %}
+{% block title %} History {% endblock %}
+{% block content %}
+<main class="d-flex flex-column p-1 text-center">
+  <h1>
+    History
+  </h1>
+  <div class="container">
+  </div>
+
+  <script src="{{ url_for('static', filename='history.js') }}">
+  </script>
+</main>
+{% endblock %}
