@@ -37,3 +37,27 @@ class DBHandler:
         self._bucket = os.getenv("R2_BUCKET")
 
         print(f"Connecting to https://{os.getenv('ACCOUNT_ID')}.r2.cloudflarestorage.com")
+
+    def get(self, image_id: str) -> Optional[BytesIO]:
+        """
+        Get an image by its ID.
+
+        Args:
+            image_id (str): The ID of the image to get.
+
+        Return:
+            Optional[BytesIO]: The image in memory if found.
+        """
+
+        try:
+            response = self._boto3_client.get_object(
+                Bucket=self._bucket,
+                Key=image_id,
+            )
+            image_bytes: BytesIO = BytesIO(response.get("Body").read())
+            image_bytes.seek(0)
+            return image_bytes
+        except self._boto3_client.exceptions.NoSuchKey:
+            return None
+        except (Exception, ):
+            return None
