@@ -105,7 +105,7 @@ class DBHandler:
             existing_images = self._list_images()
             if filename in existing_images:
                 logger.info("Image already exists.")
-                return []
+                return None
 
             self._boto3_client.upload_fileobj(
                 image_bytes,
@@ -143,3 +143,37 @@ class DBHandler:
             logger.info("Image updated successfully.")
         except Exception:
             logger.error("Failed to update the image.")
+
+    def delete(self, filenames: list[str]) -> None:
+        """
+        Delete images with the given filenames from the bucket.
+
+        Args:
+            filenames (list[str]): The list of image filenames (IDs) to delete.
+
+        Returns:
+            None
+        """
+        logger.info(f"Deleting '{len(filenames)}' images.")
+        existing_images = self._list_images()
+
+        deleted_count = 0
+        for filename in filenames:
+            if filename not in existing_images:
+                logger.info(f"No image in the bucket matches the image '{filename}'")
+                continue
+            try:
+                logger.info(f"Deleting image '{filename}' images.")
+                self._boto3_client.delete_object(
+                    Bucket=self._bucket,
+                    Key=filename,
+                )
+                logger.info("Image deleted successfully.")
+                deleted_count += 1
+            except (Exception,):
+                logger.error(f"Failed to delete the image '{filename}'.")
+
+        if not deleted_count:
+            logger.warning("No image to delete.")
+        else:
+            logger.info(f"Deleted '{deleted_count}' images.")
