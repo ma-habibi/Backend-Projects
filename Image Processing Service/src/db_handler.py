@@ -1,8 +1,9 @@
 """
 TODO:
-  - Read about cloud DB                                     [*]
-  - Rename this module to bucket handler                      [ ]
-  - Set up DB backend as a module DBConnector (simple rwr)  [...]
+  - Read about cloud DB                                             [*]
+  - Set up DB backend as a module DBConnector (simple rwr)          [...]
+  - Rename this module to BucketHandler                             [ ]
+  - Create BucketHandlerException and raise in case of CRUD failure [ ]
 """
 
 import os
@@ -115,3 +116,30 @@ class DBHandler:
             logger.info("Image created successfully.")
         except Exception:
             logger.error("Failed to create image")
+
+    def update(self, image_bytes: BytesIO, filename: str) -> None:
+        """
+        Update an image with the given filename (ID).
+
+        Args:
+            image_bytes (BytesIO): The updated image as an in-memory file.
+            filename (str): The name (ID) of the file on the R2 bucket.
+
+        Returns:
+            None
+        """
+        try:
+            logger.info(f"Updating image '{filename}'.")
+            existing_images = self._list_images()
+            if filename not in existing_images:
+                logger.info("No image in the bucket matches the image")
+                return
+
+            self._boto3_client.put_object(
+                Body=image_bytes,
+                Bucket=self._bucket,
+                Key=filename,
+            )
+            logger.info("Image updated successfully.")
+        except Exception:
+            logger.error("Failed to update the image.")
