@@ -15,6 +15,8 @@ import boto3
 
 from PIL import Image
 
+from logger import logger
+
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 
 
@@ -36,7 +38,7 @@ class DBHandler:
 
         self._bucket = os.getenv("R2_BUCKET")
 
-        print(f"Connecting to https://{os.getenv('ACCOUNT_ID')}.r2.cloudflarestorage.com")
+        logger.info(f"Connecting to https://{os.getenv('ACCOUNT_ID')}.r2.cloudflarestorage.com")
 
     def get(self, image_id: str) -> Optional[BytesIO]:
         """
@@ -48,7 +50,6 @@ class DBHandler:
         Return:
             Optional[BytesIO]: The image in memory if found.
         """
-
         try:
             response = self._boto3_client.get_object(
                 Bucket=self._bucket,
