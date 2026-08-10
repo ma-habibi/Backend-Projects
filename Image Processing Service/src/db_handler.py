@@ -65,15 +65,51 @@ class DBHandler:
 
     def list_images(self) -> list[str]:
         """
-        Get a list of all the objects (images) in the buckets.
+        Get a list of all the objects (images) in the bucket.
 
         Returns:
             list[str]: The list of objects (images).
         """
         try:
+            logger.info(f"Listing images in '{self._bucket}'.")
             response = self._boto3_client.list_objects_v2(
                 Bucket=self._bucket,
             )
-            return [content.get("Key", "") for content in response.get("Contents", [])]
+            images = [content.get("Key", "") for content in response.get("Contents", [])]
+            logger.info(f"Found '{len(images)}' images.")
+            return images
         except (Exception, ):
             return []
+
+    def create(self, image_bytes: BytesIO, filename: str) -> None:
+        """
+        Create an image with the given filename (ID).
+
+        Args:
+            image_bytes (BytesIO): The image as an in-memory file.
+            filename (str): The final name (ID) of the file on the R2 bucket.
+
+        Returns:
+            None
+
+        Raises:
+            Exception: If HTTP error occurred during the creation.
+        """
+        try:
+            logger.info(f"Creating image '{filename}'.")
+            existing_images = self.list_images()
+            if filename in existing_images:
+                logger.info("Image already exists.")
+                return []
+
+            self._boto3_client.upload_fileobj(
+                image_bytes,
+                self._bucket,
+                filename,
+                ExtraArgs={
+                    "ContentType": "image/webp"
+                }
+            )
+            logger.info("Image created successfully.")
+        except Exception:
+            logger.error("Failed to create image")
