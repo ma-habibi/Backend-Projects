@@ -14,9 +14,8 @@ from typing import Optional
 
 import boto3
 
-from PIL import Image
-
 from logger import logger
+from r2_bucket_handler_exception import R2BucketHandlerException
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 
@@ -27,20 +26,25 @@ class R2BucketHandler:
         Initialize the S3-compatible API client to access cloudflare's R2 bucket.
         Provides CRUD operations on the R2 bucket specified at the `.env` file.
         """
-        load_dotenv(BASE_DIR / ".env")
+        try:
+            load_dotenv(BASE_DIR / ".env")
 
-        self._boto3_client = boto3.client(
-            "s3",
-            endpoint_url=f"https://{os.getenv('ACCOUNT_ID')}.r2.cloudflarestorage.com",
-            aws_access_key_id=os.getenv("ACCESS_KEY_ID"),
-            aws_secret_access_key=os.getenv("SECRET_ACCESS_KEY"),
-        )
+            self._boto3_client = boto3.client(
+                "s3",
+                endpoint_url=f"https://{os.getenv('ACCOUNT_ID')}.r2.cloudflarestorage.com",
+                aws_access_key_id=os.getenv("ACCESS_KEY_ID"),
+                aws_secret_access_key=os.getenv("SECRET_ACCESS_KEY"),
+            )
 
-        self._bucket = os.getenv("R2_BUCKET")
+            self._bucket = os.getenv("R2_BUCKET")
 
-        logger.info(
-            f"Connecting to https://{os.getenv('ACCOUNT_ID')}.r2.cloudflarestorage.com"
-        )
+            logger.info(
+                f"Connecting to https://{os.getenv('ACCOUNT_ID')}.r2.cloudflarestorage.com"
+            )
+        except Exception as e:
+            raise R2BucketHandlerException(
+                f"Failed to initialize the bucket client: {e}"
+            )
 
     def _list_images(self) -> list[str]:
         """
