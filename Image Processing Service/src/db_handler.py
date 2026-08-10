@@ -4,6 +4,7 @@ TODO:
   - Rename this module to bucket handler                      [ ]
   - Set up DB backend as a module DBConnector (simple rwr)  [...]
 """
+
 import os
 import pathlib
 
@@ -26,8 +27,7 @@ class DBHandler:
         Initialize the S3-compatible API client to access cloudflare's R2 bucket.
         Provides CRUD operations on the R2 bucket specified at the `.env` file.
         """
-
-        load_dotenv(BASE_DIR / '.env')
+        load_dotenv(BASE_DIR / ".env")
 
         self._boto3_client = boto3.client(
             "s3",
@@ -38,7 +38,29 @@ class DBHandler:
 
         self._bucket = os.getenv("R2_BUCKET")
 
-        logger.info(f"Connecting to https://{os.getenv('ACCOUNT_ID')}.r2.cloudflarestorage.com")
+        logger.info(
+            f"Connecting to https://{os.getenv('ACCOUNT_ID')}.r2.cloudflarestorage.com"
+        )
+
+    def _list_images(self) -> list[str]:
+        """
+        Get a list of all the objects (images) in the bucket.
+
+        Returns:
+            list[str]: The list of objects (images).
+        """
+        try:
+            logger.info(f"Listing images in '{self._bucket}'.")
+            response = self._boto3_client.list_objects_v2(
+                Bucket=self._bucket,
+            )
+            images = [
+                content.get("Key", "") for content in response.get("Contents", [])
+            ]
+            logger.info(f"Found '{len(images)}' images.")
+            return images
+        except (Exception,):
+            return []
 
     def get(self, image_id: str) -> Optional[BytesIO]:
         """
@@ -60,26 +82,8 @@ class DBHandler:
             return image_bytes
         except self._boto3_client.exceptions.NoSuchKey:
             return None
-        except (Exception, ):
+        except (Exception,):
             return None
-
-    def list_images(self) -> list[str]:
-        """
-        Get a list of all the objects (images) in the bucket.
-
-        Returns:
-            list[str]: The list of objects (images).
-        """
-        try:
-            logger.info(f"Listing images in '{self._bucket}'.")
-            response = self._boto3_client.list_objects_v2(
-                Bucket=self._bucket,
-            )
-            images = [content.get("Key", "") for content in response.get("Contents", [])]
-            logger.info(f"Found '{len(images)}' images.")
-            return images
-        except (Exception, ):
-            return []
 
     def create(self, image_bytes: BytesIO, filename: str) -> None:
         """
@@ -97,7 +101,7 @@ class DBHandler:
         """
         try:
             logger.info(f"Creating image '{filename}'.")
-            existing_images = self.list_images()
+            existing_images = self._list_images()
             if filename in existing_images:
                 logger.info("Image already exists.")
                 return []
@@ -106,9 +110,7 @@ class DBHandler:
                 image_bytes,
                 self._bucket,
                 filename,
-                ExtraArgs={
-                    "ContentType": "image/webp"
-                }
+                ExtraArgs={"ContentType": "image/webp"},
             )
             logger.info("Image created successfully.")
         except Exception:
