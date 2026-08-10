@@ -62,3 +62,18 @@ class DBHandler:
             return None
         except (Exception, ):
             return None
+
+    def list_images(self) -> list[str]:
+        """
+        Get a list of all the objects (images) in the buckets.
+
+        Returns:
+            list[str]: The list of objects (images).
+        """
+        try:
+            response = self._boto3_client.list_objects_v2(
+                Bucket=self._bucket,
+            )
+            return [content.get("Key", "") for content in response.get("Contents", [])]
+        except (Exception, ):
+            return []
