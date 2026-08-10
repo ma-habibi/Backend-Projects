@@ -1,9 +1,8 @@
 """
 TODO:
-  - Read about cloud DB                                             [*]
-  - Set up DB backend as a module DBConnector (simple rwr)          [...]
-  - Rename this module to BucketHandler                             [ ]
-  - Create BucketHandlerException and raise in case of CRUD failure [ ]
+  - Rename this module to BucketHandler                             [...]
+  - Create BucketHandlerException and raise in case of CRUD failure [...]
+  - Finish the technical specification                              [ ]
 """
 
 import os
@@ -22,7 +21,7 @@ from logger import logger
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 
 
-class DBHandler:
+class R2BucketHandler:
     def __init__(self):
         """
         Initialize the S3-compatible API client to access cloudflare's R2 bucket.
