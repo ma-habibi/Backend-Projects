@@ -28,7 +28,7 @@ class UserRecord:
     id: str
     username: str
     created_at: datetime
-    
+
     @classmethod
     def from_row(cls, row) -> "UserRecord":
         if row is None:
@@ -38,7 +38,7 @@ class UserRecord:
         return cls(id=id, username=username, created_at=created_at)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class ImageRecord:
     """A row from the `images` table.
 
@@ -63,14 +63,23 @@ class ImageRecord:
     size_bytes: int
     created_at: datetime
     updated_at: datetime
-    
+
     @classmethod
     def from_row(cls, row) -> "ImageRecord":
         if row is None:
             raise ValueError("Cannot create ImageRecord from an empty row")
-        
-        (id, user_id, filename, format, width, height, size_bytes,
-         created_at, updated_at) = row
+
+        (
+            id,
+            user_id,
+            filename,
+            format,
+            width,
+            height,
+            size_bytes,
+            created_at,
+            updated_at,
+        ) = row
         return cls(
             id=id,
             user_id=user_id,
@@ -192,7 +201,7 @@ class DBManager:
 
         Returns:
         """
-        
+
         self._logger.info(f"Getting user by ID '{user_id}")
         with self._get_connection() as connection:
             with connection.cursor() as cursor:
@@ -214,11 +223,11 @@ class DBManager:
         self._logger.debug(row)
         return UserRecord.from_row(row)
 
-    def create_image(self, user_id: int, filename: str, metadata: dict) -> ImageRecord:
+    def create_image(self, user_id: str, filename: str, metadata: dict) -> ImageRecord:
         """
         Insert a new image record and return the created ImageRecord.
         """
-        
+
         self._logger.info(f"Creating image '{filename}'.")
         image_id = str(uuid.uuid4())
         with self._get_connection() as connection:
@@ -254,14 +263,14 @@ class DBManager:
             except psycopg.Error as e:
                 connection.rollback()
                 raise DBManagerException(f"Failed to create image. {e}")
- 
+
         return ImageRecord.from_row(row)
 
     def get_image(self, image_id: str, user_id: str) -> Optional[ImageRecord]:
         """
         Return the image record matching the given ID and owning user, or None if not found.
         """
-        
+
         self._logger.info(f"Getting image by ID '{image_id}")
         with self._get_connection() as connection:
             with connection.cursor() as cursor:
@@ -279,5 +288,42 @@ class DBManager:
             self._logger.info("No such image")
             return None
         self._logger.info("Successfully Obtained the image")
+        self._logger.debug(row)
+        return ImageRecord.from_row(row)
+
+    def update_image(
+        self, image_id: str, user_id: str, metadata: dict
+    ) -> Optional[ImageRecord]:
+        """
+        Update an existing image record's metadata (e.g. after a transformation) and return the updated ImageRecord, or None if not found.
+        """
+        self._logger.info(f"Updating image by ID '{image_id}'")
+
+        allowed_fields = ("filename", "format", "width", "height", "size_bytes")
+        fields_to_update = {k: v for k, v in metadata.items() if k in allowed_fields}
+
+        if not fields_to_update:
+            raise DBManagerException("No valid fields provided to update.")
+
+        set_clause = ", ".join(f"{field} = %s" for field in fields_to_update)
+        values = list(fields_to_update.values())
+
+        with self._get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    UPDATE images
+                    SET {set_clause}, updated_at = now()
+                    WHERE id = %s AND user_id = %s
+                    RETURNING id, user_id, filename, format, width, height, size_bytes, created_at, updated_at
+                    """,
+                    (*values, image_id, user_id),
+                )
+                row = cursor.fetchone()
+
+        if row is None:
+            self._logger.info("No such image")
+            return None
+        self._logger.info("Successfully Updated the image")
         self._logger.debug(row)
         return ImageRecord.from_row(row)
