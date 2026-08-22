@@ -213,3 +213,46 @@ class DBManager:
         self._logger.info("Successfully Obtained the user")
         self._logger.debug(row)
         return UserRecord.from_row(row)
+
+    def create_image(self, user_id: int, filename: str, metadata: dict) -> ImageRecord:
+        """
+        Insert a new image record and return the created ImageRecord.
+        """
+        
+        self._logger.info(f"Creating image '{filename}'.")
+        image_id = str(uuid.uuid4())
+        with self._get_connection() as connection:
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO images
+                            (id, user_id, filename, format, width, height, size_bytes)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        RETURNING
+                            id, user_id, filename, format, width, height,
+                            size_bytes, created_at, updated_at
+                        """,
+                        (
+                            image_id,
+                            user_id,
+                            filename,
+                            metadata.get("format"),
+                            metadata.get("width"),
+                            metadata.get("height"),
+                            metadata.get("size_bytes"),
+                        ),
+                    )
+                    row = cursor.fetchone()
+                connection.commit()
+                self._logger.info("Successfully created the image.")
+            except psycopg.errors.ForeignKeyViolation as e:
+                connection.rollback()
+                raise DBManagerException(
+                    f"The referenced user '{user_id}' does not exist. {e}"
+                )
+            except psycopg.Error as e:
+                connection.rollback()
+                raise DBManagerException(f"Failed to create image. {e}")
+ 
+        return ImageRecord.from_row(row)
