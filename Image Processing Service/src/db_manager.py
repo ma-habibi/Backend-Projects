@@ -131,3 +131,34 @@ class DBManager:
         logger.info("Successfully Obtained the user")
         logger.debug(row)
         return UserRecord(id=row[0], username=row[1], created_at=row[2])
+
+    def get_user_by_id(self, user_id: str) -> Optional[UserRecord]:
+        """
+        Return the user matching the given ID, or None if no such user exists.
+
+        Args:
+            user_id (str):
+
+        Returns:
+        """
+        
+        logger.info(f"Getting user by ID '{user_id}")
+        with self._get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, username, created_at
+                    FROM users
+                    WHERE id = %s
+                    """,
+                    (user_id,),
+                )
+                row = cursor.fetchone()
+            connection.commit()
+
+        if row is None:
+            logger.info("No such user")
+            return None
+        logger.info("Successfully Obtained the user")
+        logger.debug(row)
+        return UserRecord(id=row[0], username=row[1], created_at=row[2])
