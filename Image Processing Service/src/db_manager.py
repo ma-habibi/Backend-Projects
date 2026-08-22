@@ -136,6 +136,8 @@ class DBManager:
         self._logger = common.get_logger()
         self._base_dir = common.get_base_dir()
 
+        self._logger.info("Initializing DBManager connection pool.")
+
         database_url = os.getenv("DATABASE_URL")
         if not database_url:
             raise DBManagerException("DATABASE_URL environment variable is not set.")
@@ -143,10 +145,11 @@ class DBManager:
         try:
             self._pool = ConnectionPool(conninfo=database_url, open=True)
         except psycopg.Error as e:
-            self._logger.error("Failed to initialize the connection pool: %s", e)
             raise DBManagerException(
                 f"Failed to initialize the database connection pool. {e}"
             )
+
+        self._logger.info("Successfully initialized the connection pool.")
 
     @contextmanager
     def _get_connection(self) -> Iterator[psycopg.Connection]:
@@ -184,6 +187,8 @@ class DBManager:
             DBManagerException: If the username already exists, or the
                 insert otherwise fails.
         """
+        self._logger.info(f"Creating user '{username}'.")
+
         with self._get_connection() as connection:
             try:
                 with connection.cursor() as cursor:
@@ -197,13 +202,14 @@ class DBManager:
                     )
                     row = cursor.fetchone()
                 connection.commit()
-            except psycopg.errors.UniqueViolation:
+            except psycopg.errors.UniqueViolation as e:
                 connection.rollback()
-                raise DBManagerException(f"Duplicate username '{username}'.")
+                raise DBManagerException(f"Duplicate username '{username}'. {e}")
             except psycopg.Error as e:
                 connection.rollback()
                 raise DBManagerException(f"Failed to create user. {e}")
 
+        self._logger.info("Successfully created the user.")
         return UserRecord.from_row(row)
 
     def get_user_by_username(self, username: str) -> Optional[UserRecord]:
@@ -320,7 +326,6 @@ class DBManager:
                     )
                     row = cursor.fetchone()
                 connection.commit()
-                self._logger.info("Successfully created the image.")
             except psycopg.errors.ForeignKeyViolation as e:
                 connection.rollback()
                 raise DBManagerException(
@@ -330,6 +335,7 @@ class DBManager:
                 connection.rollback()
                 raise DBManagerException(f"Failed to create image. {e}")
 
+        self._logger.info("Successfully created the image.")
         return ImageRecord.from_row(row)
 
     def get_image(self, image_id: str, user_id: str) -> Optional[ImageRecord]:
