@@ -327,3 +327,47 @@ class DBManager:
         self._logger.info("Successfully Updated the image")
         self._logger.debug(row)
         return ImageRecord.from_row(row)
+
+    def list_images(
+        self, user_id: str, page: int, limit: int
+    ) -> tuple[list[ImageRecord], int]:
+        """
+        Return a paginated list of image records owned by the given user, along with the total count of matching records.
+        """
+        self._logger.info(
+            f"Listing images for user '{user_id}', page '{page}', limit '{limit}'"
+        )
+
+        if page < 1:
+            raise DBManagerException("Page must be >= 1.")
+        if limit < 1:
+            raise DBManagerException("Limit must be >= 1.")
+
+        offset = (page - 1) * limit
+
+        with self._get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM images WHERE user_id = %s",
+                    (user_id,),
+                )
+                total = cursor.fetchone()[0]
+
+                cursor.execute(
+                    """
+                    SELECT id, user_id, filename, format, width, height, size_bytes, created_at, updated_at
+                    FROM images
+                    WHERE user_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    (user_id, limit, offset),
+                )
+                rows = cursor.fetchall()
+
+        images = [ImageRecord.from_row(row) for row in rows]
+        self._logger.info(
+            f"Successfully Obtained {len(images)} image(s), total {total}"
+        )
+        self._logger.debug(rows)
+        return images, total
