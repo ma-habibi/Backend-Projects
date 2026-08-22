@@ -74,3 +74,34 @@ class DBManager:
             raise DBManagerException(
                 f"Failed to obtain a database connection from the pool. {e}"
             )
+
+    def create_user(self, username: str, password_hash: str) -> UserRecord:
+        """
+        Insert a new user with the given username and hashed password. Returns the created UserRecord. Raises DbManagerException if the username already exists.
+        """
+        with self._get_connection() as connection:
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                            INSERT INTO users (username, password_hash)
+                            VALUES (%s, %s)
+                            RETURNING id, username, created_at
+                            """,
+                        (username, password_hash),
+                    )
+                    row = cursor.fetchone()
+                connection.commit()
+            except psycopg.errors.UniqueViolation:
+                connection.rollback()
+                raise DBManagerException(f"Duplicate username '{username}'.")
+            except psycopg.Error as e:
+                connection.rollback()
+                self._logger.error("Failed to create user '%s': %s", username, e)
+                raise DBManagerException("Failed to create user.") from e
+
+        return UserRecord(
+            id=next(iter(row), None),
+            username=next(iter(row), None),
+            created_at=next(iter(row), None),
+        )
