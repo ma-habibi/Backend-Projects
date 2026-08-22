@@ -63,3 +63,14 @@ class DBManager:
             raise DBManagerException(
                 "Failed to initialize the database connection pool."
             ) from e
+
+    @contextmanager
+    def _get_connection(self) -> Iterator[psycopg.Connection]:
+        """ """
+        try:
+            with self._pool.connection() as connection:
+                yield connection
+        except psycopg.Error as e:
+            raise DBManagerException(
+                f"Failed to obtain a database connection from the pool. {e}"
+            )
