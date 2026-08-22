@@ -111,6 +111,7 @@ class DBManager:
         Return the user matching the given username, or None if no such user exists.
         """
 
+        logger.info(f"Getting user by username '{username}")
         with self._get_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -125,5 +126,8 @@ class DBManager:
             connection.commit()
 
         if row is None:
+            logger.info("No such user")
             return None
+        logger.info("Successfully Obtained the user")
+        logger.debug(row)
         return UserRecord(id=row[0], username=row[1], created_at=row[2])
