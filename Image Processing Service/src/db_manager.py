@@ -1,14 +1,15 @@
 import os
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Iterator, Optional
+from typing import Optional, Iterator
 from datetime import datetime
-
-from common import common
-from db_manager_exception import DBManagerException
 
 import psycopg
 from psycopg_pool import ConnectionPool
+
+from common import common
+from db_manager_exception import DBManagerException
 
 
 @dataclass(frozen=True)
@@ -24,9 +25,17 @@ class UserRecord:
         created_at: When the user was created.
     """
 
-    id: int
+    id: str
     username: str
     created_at: datetime
+    
+    @classmethod
+    def from_row(cls, row) -> "UserRecord":
+        if row is None:
+            raise ValueError("Cannot create UserRecord from an empty row")
+
+        id, username, created_at = row
+        return cls(id=id, username=username, created_at=created_at)
 
 
 class DBManager:
@@ -100,18 +109,14 @@ class DBManager:
                 self._logger.error("Failed to create user '%s': %s", username, e)
                 raise DBManagerException("Failed to create user.") from e
 
-        return UserRecord(
-            id=next(iter(row), None),
-            username=next(iter(row), None),
-            created_at=next(iter(row), None),
-        )
+        return UserRecord.from_row(row)
 
     def get_user_by_username(self, username: str) -> Optional[UserRecord]:
         """
         Return the user matching the given username, or None if no such user exists.
         """
 
-        logger.info(f"Getting user by username '{username}")
+        self._logger.info(f"Getting user by username '{username}")
         with self._get_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -126,11 +131,11 @@ class DBManager:
             connection.commit()
 
         if row is None:
-            logger.info("No such user")
+            self._logger.info("No such user")
             return None
-        logger.info("Successfully Obtained the user")
-        logger.debug(row)
-        return UserRecord(id=row[0], username=row[1], created_at=row[2])
+        self._logger.info("Successfully Obtained the user")
+        self._logger.debug(row)
+        return UserRecord.from_row(row)
 
     def get_user_by_id(self, user_id: str) -> Optional[UserRecord]:
         """
@@ -142,7 +147,7 @@ class DBManager:
         Returns:
         """
         
-        logger.info(f"Getting user by ID '{user_id}")
+        self._logger.info(f"Getting user by ID '{user_id}")
         with self._get_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -157,8 +162,8 @@ class DBManager:
             connection.commit()
 
         if row is None:
-            logger.info("No such user")
+            self._logger.info("No such user")
             return None
-        logger.info("Successfully Obtained the user")
-        logger.debug(row)
-        return UserRecord(id=row[0], username=row[1], created_at=row[2])
+        self._logger.info("Successfully Obtained the user")
+        self._logger.debug(row)
+        return UserRecord.from_row(row)
