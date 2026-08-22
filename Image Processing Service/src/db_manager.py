@@ -38,6 +38,52 @@ class UserRecord:
         return cls(id=id, username=username, created_at=created_at)
 
 
+@dataclass(frozen=True)
+class ImageRecord:
+    """A row from the `images` table.
+
+    Attributes:
+        id: Internal image identifier.
+        user_id: Owning user, users(id).
+        filename: Original filename provided at upload time.
+        format: Current image format.
+        width: Current pixel width dimension.
+        height: Current pixel height dimension.
+        size_bytes: Current file size in bytes.
+        created_at: When the image was created.
+        created_at: When the image was updated.
+    """
+
+    id: str
+    user_id: str
+    filename: str
+    format: str
+    width: int
+    height: int
+    size_bytes: int
+    created_at: datetime
+    updated_at: datetime
+    
+    @classmethod
+    def from_row(cls, row) -> "ImageRecord":
+        if row is None:
+            raise ValueError("Cannot create ImageRecord from an empty row")
+        
+        (id, user_id, filename, format, width, height, size_bytes,
+         created_at, updated_at) = row
+        return cls(
+            id=id,
+            user_id=user_id,
+            filename=filename,
+            format=format,
+            width=width,
+            height=height,
+            size_bytes=size_bytes,
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+
+
 class DBManager:
     """
     A client that will use psycopg3 to interact with the postgresql database.
