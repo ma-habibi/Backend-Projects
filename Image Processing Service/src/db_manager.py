@@ -1,7 +1,7 @@
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Iterator
+from typing import Iterator, Optional
 from datetime import datetime
 
 from common import common
@@ -105,3 +105,25 @@ class DBManager:
             username=next(iter(row), None),
             created_at=next(iter(row), None),
         )
+
+    def get_user_by_username(self, username: str) -> Optional[UserRecord]:
+        """
+        Return the user matching the given username, or None if no such user exists.
+        """
+
+        with self._get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, username, created_at
+                    FROM users
+                    WHERE username = %s
+                    """,
+                    (username,),
+                )
+                row = cursor.fetchone()
+            connection.commit()
+
+        if row is None:
+            return None
+        return UserRecord(id=row[0], username=row[1], created_at=row[2])
