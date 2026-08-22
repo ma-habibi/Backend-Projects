@@ -371,3 +371,25 @@ class DBManager:
         )
         self._logger.debug(rows)
         return images, total
+
+    def delete_image(self, image_id: str, user_id: str) -> None:
+        """
+        Delete the image record matching the given ID and owning user.
+        """
+        self._logger.info(f"Deleting image by ID '{image_id}' for user '{user_id}'")
+
+        with self._get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    DELETE FROM images
+                    WHERE id = %s AND user_id = %s
+                    """,
+                    (image_id, user_id),
+                )
+                deleted_count = cursor.rowcount
+
+        if deleted_count == 0:
+            self._logger.info("No such image")
+        else:
+            self._logger.info("Successfully Deleted the image")
