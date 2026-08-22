@@ -11,6 +11,24 @@ import psycopg
 from psycopg_pool import ConnectionPool
 
 
+@dataclass(frozen=True)
+class UserRecord:
+    """A row from the `users` table.
+
+    Deliberately excludes `password_hash` so it never accidentally ends up
+    serialized into an API response.
+
+    Attributes:
+        id: Internal user identifier.
+        username: The user's unique username.
+        created_at: When the user was created.
+    """
+
+    id: int
+    username: str
+    created_at: datetime
+
+
 class DBManager:
     """
     A client that will use psycopg3 to interact with the postgresql database.
