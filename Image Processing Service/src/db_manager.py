@@ -256,3 +256,28 @@ class DBManager:
                 raise DBManagerException(f"Failed to create image. {e}")
  
         return ImageRecord.from_row(row)
+
+    def get_image(self, image_id: str, user_id: str) -> Optional[ImageRecord]:
+        """
+        Return the image record matching the given ID and owning user, or None if not found.
+        """
+        
+        self._logger.info(f"Getting image by ID '{image_id}")
+        with self._get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, user_id, filename, format, width, height, size_bytes, created_at, updated_at
+                    FROM images
+                    WHERE id = %s AND user_id = %s
+                    """,
+                    (image_id, user_id),
+                )
+                row = cursor.fetchone()
+
+        if row is None:
+            self._logger.info("No such image")
+            return None
+        self._logger.info("Successfully Obtained the image")
+        self._logger.debug(row)
+        return ImageRecord.from_row(row)
