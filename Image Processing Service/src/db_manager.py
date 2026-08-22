@@ -14,15 +14,14 @@ from db_manager_exception import DBManagerException
 
 @dataclass(frozen=True)
 class UserRecord:
-    """A row from the `users` table.
-
-    Deliberately excludes `password_hash` so it never accidentally ends up
-    serialized into an API response.
+    """
+    A row from the `users` table. Excludes `password_hash` so it never
+    accidentally ends up serialized into an API response.
 
     Attributes:
-        id: Internal user identifier.
-        username: The user's unique username.
-        created_at: When the user was created.
+        id (str): Internal user identifier.
+        username (str): The user's unique username.
+        created_at (datetime): When the user was created.
     """
 
     id: str
@@ -31,6 +30,18 @@ class UserRecord:
 
     @classmethod
     def from_row(cls, row) -> "UserRecord":
+        """
+        Build a UserRecord from a raw database row.
+
+        Args:
+            row (tuple): A `(id, username, created_at)` row.
+
+        Return:
+            UserRecord: The constructed record.
+
+        Raises:
+            ValueError: If `row` is None.
+        """
         if row is None:
             raise ValueError("Cannot create UserRecord from an empty row")
 
@@ -40,18 +51,19 @@ class UserRecord:
 
 @dataclass(frozen=False)
 class ImageRecord:
-    """A row from the `images` table.
+    """
+    A row from the `images` table.
 
     Attributes:
-        id: Internal image identifier.
-        user_id: Owning user, users(id).
-        filename: Original filename provided at upload time.
-        format: Current image format.
-        width: Current pixel width dimension.
-        height: Current pixel height dimension.
-        size_bytes: Current file size in bytes.
-        created_at: When the image was created.
-        created_at: When the image was updated.
+        id (str): Internal image identifier.
+        user_id (str): Owning user, users(id).
+        filename (str): Original filename provided at upload time.
+        format (str): Current image format.
+        width (int): Current pixel width dimension.
+        height (int): Current pixel height dimension.
+        size_bytes (int): Current file size in bytes.
+        created_at (datetime): When the image was created.
+        updated_at (datetime): When the image was updated.
     """
 
     id: str
@@ -66,6 +78,19 @@ class ImageRecord:
 
     @classmethod
     def from_row(cls, row) -> "ImageRecord":
+        """
+        Build an ImageRecord from a raw database row.
+
+        Args:
+            row (tuple): A `(id, user_id, filename, format, width, height,
+                size_bytes, created_at, updated_at)` row.
+
+        Return:
+            ImageRecord: The constructed record.
+
+        Raises:
+            ValueError: If `row` is None.
+        """
         if row is None:
             raise ValueError("Cannot create ImageRecord from an empty row")
 
@@ -104,14 +129,9 @@ class DBManager:
         """
         Initialize the DBManager and open a connection pool.
 
-        Reads the `DATABASE_URL` environment variable and uses it to create
-        a `psycopg_pool.ConnectionPool`. The pool is opened upon initialization so that
-        connection failures surface immediately raising a DBManagerException.
-
         Raises:
             DBManagerException: If `DATABASE_URL` is not set, or the
-                connection pool fails to initialize (e.g. the database is
-                unreachable or credentials are invalid).
+                connection pool fails to initialize.
         """
         self._logger = common.get_logger()
         self._base_dir = common.get_base_dir()
@@ -125,12 +145,22 @@ class DBManager:
         except psycopg.Error as e:
             self._logger.error("Failed to initialize the connection pool: %s", e)
             raise DBManagerException(
-                "Failed to initialize the database connection pool."
-            ) from e
+                f"Failed to initialize the database connection pool. {e}"
+            )
 
     @contextmanager
     def _get_connection(self) -> Iterator[psycopg.Connection]:
-        """ """
+        """
+        Get a pooled connection to the database, opening a new one if needed.
+
+        Return:
+            Iterator[psycopg.Connection]: A context manager yielding an open
+                connection.
+
+        Raises:
+            DBManagerException: If a connection cannot be obtained from the
+                pool.
+        """
         try:
             with self._pool.connection() as connection:
                 yield connection
@@ -141,7 +171,18 @@ class DBManager:
 
     def create_user(self, username: str, password_hash: str) -> UserRecord:
         """
-        Insert a new user with the given username and hashed password. Returns the created UserRecord. Raises DbManagerException if the username already exists.
+        Create a new user with the given username and hashed password.
+
+        Args:
+            username (str): The desired username. Must be unique.
+            password_hash (str): The already-hashed password.
+
+        Return:
+            UserRecord: The newly created user.
+
+        Raises:
+            DBManagerException: If the username already exists, or the
+                insert otherwise fails.
         """
         with self._get_connection() as connection:
             try:
@@ -161,14 +202,22 @@ class DBManager:
                 raise DBManagerException(f"Duplicate username '{username}'.")
             except psycopg.Error as e:
                 connection.rollback()
-                self._logger.error("Failed to create user '%s': %s", username, e)
-                raise DBManagerException("Failed to create user.") from e
+                raise DBManagerException(f"Failed to create user. {e}")
 
         return UserRecord.from_row(row)
 
     def get_user_by_username(self, username: str) -> Optional[UserRecord]:
         """
-        Return the user matching the given username, or None if no such user exists.
+        Get the user matching the given username.
+
+        Args:
+            username (str): The username to search for.
+
+        Return:
+            Optional[UserRecord]: The matching user, or None if not found.
+
+        Raises:
+            DBManagerException: If the query fails.
         """
 
         self._logger.info(f"Getting user by username '{username}")
@@ -194,12 +243,16 @@ class DBManager:
 
     def get_user_by_id(self, user_id: str) -> Optional[UserRecord]:
         """
-        Return the user matching the given ID, or None if no such user exists.
+        Get the user matching the given ID.
 
         Args:
-            user_id (str):
+            user_id (str): The internal user ID to search for.
 
-        Returns:
+        Return:
+            Optional[UserRecord]: The matching user, or None if not found.
+
+        Raises:
+            DBManagerException: If the query fails.
         """
 
         self._logger.info(f"Getting user by ID '{user_id}")
@@ -225,7 +278,20 @@ class DBManager:
 
     def create_image(self, user_id: str, filename: str, metadata: dict) -> ImageRecord:
         """
-        Insert a new image record and return the created ImageRecord.
+        Create a new image record. Generates a new image ID (UUID).
+
+        Args:
+            user_id (str): The owning user's internal ID.
+            filename (str): The original filename provided at upload time.
+            metadata (dict): A dict with keys `format`, `width`, `height`,
+                and `size_bytes`.
+
+        Return:
+            ImageRecord: The newly created image record.
+
+        Raises:
+            DBManagerException: If `user_id` does not reference an existing
+                user, or the insert otherwise fails.
         """
 
         self._logger.info(f"Creating image '{filename}'.")
@@ -268,7 +334,17 @@ class DBManager:
 
     def get_image(self, image_id: str, user_id: str) -> Optional[ImageRecord]:
         """
-        Return the image record matching the given ID and owning user, or None if not found.
+        Get the image record matching the given ID and owning user.
+
+        Args:
+            image_id (str): The image's ID.
+            user_id (str): The ID of the user who must own the image.
+
+        Return:
+            Optional[ImageRecord]: The matching image, or None if not found.
+
+        Raises:
+            DBManagerException: If the query fails.
         """
 
         self._logger.info(f"Getting image by ID '{image_id}")
@@ -295,7 +371,20 @@ class DBManager:
         self, image_id: str, user_id: str, metadata: dict
     ) -> Optional[ImageRecord]:
         """
-        Update an existing image record's metadata (e.g. after a transformation) and return the updated ImageRecord, or None if not found.
+        Update an existing image record's metadata.
+
+        Args:
+            image_id (str): The image's ID.
+            user_id (str): The ID of the user who must own the image.
+            metadata (dict): Fields to update; any of `filename`, `format`,
+                `width`, `height`, `size_bytes`.
+
+        Return:
+            Optional[ImageRecord]: The updated image, or None if not found.
+
+        Raises:
+            DBManagerException: If no valid fields are provided, or the
+                update fails.
         """
         self._logger.info(f"Updating image by ID '{image_id}'")
 
@@ -332,7 +421,20 @@ class DBManager:
         self, user_id: str, page: int, limit: int
     ) -> tuple[list[ImageRecord], int]:
         """
-        Return a paginated list of image records owned by the given user, along with the total count of matching records.
+        Get a paginated list of image records owned by the given user.
+
+        Args:
+            user_id (str): The owning user's internal ID.
+            page (int): The 1-indexed page number.
+            limit (int): Max number of records per page.
+
+        Return:
+            tuple[list[ImageRecord], int]: The page of images, and the total
+                count of matching records across all pages.
+
+        Raises:
+            DBManagerException: If `page` or `limit` is invalid, or the
+                query fails.
         """
         self._logger.info(
             f"Listing images for user '{user_id}', page '{page}', limit '{limit}'"
@@ -375,6 +477,16 @@ class DBManager:
     def delete_image(self, image_id: str, user_id: str) -> None:
         """
         Delete the image record matching the given ID and owning user.
+
+        Args:
+            image_id (str): The image's ID.
+            user_id (str): The ID of the user who must own the image.
+
+        Return:
+            None:
+
+        Raises:
+            DBManagerException: If the query fails.
         """
         self._logger.info(f"Deleting image by ID '{image_id}' for user '{user_id}'")
 
