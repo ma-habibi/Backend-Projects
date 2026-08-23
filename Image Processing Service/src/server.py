@@ -86,5 +86,27 @@ async def sign_up(user: models.User) -> dict:
     }
 
 
+@app.post("/login")
+async def log_in(user: models.User) -> dict:
+    """
+    Authenticate an existing user.
+
+    Args:
+        user (models.User): The username/password payload.
+
+    Return:
+        dict: {"user": {...}, "token": "..."}
+    """
+    _LOGGER.info(f"Handling POST /login for username '{user.username}'.")
+
+    token, logged_in_user = image_processing_service.login(user.username, user.password)
+
+    _LOGGER.info(f"Successfully handled POST /login for username '{user.username}'.")
+    return {
+        "user": _user_to_dict(logged_in_user),
+        "token": token,
+    }
+
+
 if __name__ == "__main__":
     uvicorn.run("server:app", port=8000, log_level="info")
