@@ -86,7 +86,7 @@ class ImageProcessingService:
         self._logger.info(f"Successfully registered user '{username}'.")
         return user
 
-    def login(self, username: str, password: str) -> str:
+    def login(self, username: str, password: str) -> tuple[str, UserRecord]:
         """
         Verify credentials and issue a signed JWT.
 
@@ -95,7 +95,7 @@ class ImageProcessingService:
             password (str): The plaintext password to verify.
 
         Return:
-            str: A signed JWT for the authenticated user.
+            tuple[str, UserRecord]: The signed JWT and the authenticated user.
 
         Raises:
             ImageProcessingServiceException: If the username does not exist
@@ -123,4 +123,4 @@ class ImageProcessingService:
         token = Auth.create_access_token(user_id=user.id, expire_minutes=expire_minutes)
 
         self._logger.info(f"Successfully logged in user '{username}'.")
-        return token
+        return token, user

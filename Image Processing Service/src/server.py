@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse
 
 import models
 from common import common
-from db_manager import DBManager
+from db_manager import DBManager, UserRecord
 from image_processing_service import (
     ImageProcessingService,
     ImageProcessingServiceException,
@@ -89,15 +89,11 @@ async def sign_up(user: models.User) -> dict:
     _LOGGER.info(f"Handling POST /register for username '{user.username}'.")
 
     created_user = image_processing_service.register_user(user.username, user.password)
-    token = image_processing_service.login(user.username, user.password)
+    token, _ = image_processing_service.login(user.username, user.password)
 
     _LOGGER.info(f"Successfully handled POST /register for username '{user.username}'.")
     return {
-        "user": {
-            "id": created_user.id,
-            "username": created_user.username,
-            "created_at": created_user.created_at.isoformat(),
-        },
+        "user": _user_to_dict(created_user),
         "token": token,
     }
 
