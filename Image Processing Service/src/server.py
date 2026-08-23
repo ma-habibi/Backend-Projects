@@ -20,7 +20,6 @@ Route handlers are plain module-level `async` functions registered via `@app.<me
 import pathlib
 
 import uvicorn
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
