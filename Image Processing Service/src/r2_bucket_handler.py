@@ -1,70 +1,111 @@
-"""
-TODO:
-  - Rename this module to BucketHandler                             [...]
-  - Create BucketHandlerException and raise in case of CRUD failure [...]
-  - Finish the technical specification                              [ ]
-"""
-
 import os
-import pathlib
-
-from dotenv import load_dotenv
 from io import BytesIO
 from typing import Optional
 
 import boto3
+from botocore.exceptions import ClientError
 
-from logger import logger
-from r2_bucket_handler_exception import R2BucketHandlerException
+from common import common
 
-BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
+
+class R2BucketHandlerException(Exception):
+    """Raised for any R2BucketHandler failure: client initialization, or a
+    failed R2 operation (upload, download, update, delete)."""
 
 
 class R2BucketHandler:
-    def __init__(self):
-        """
-        Initialize the S3-compatible API client to access cloudflare's R2 bucket.
-        Provides CRUD operations on the R2 bucket specified at the `.env` file.
-        """
-        try:
-            load_dotenv(BASE_DIR / ".env")
+    """
+    An S3-compatible API client to access Cloudflare's R2 bucket.
 
-            self._boto3_client = boto3.client(
-                "s3",
-                endpoint_url=f"https://{os.getenv('ACCOUNT_ID')}.r2.cloudflarestorage.com",
-                aws_access_key_id=os.getenv("ACCESS_KEY_ID"),
-                aws_secret_access_key=os.getenv("SECRET_ACCESS_KEY"),
+    Provides CRUD operations on the R2 bucket specified in the .env file.
+    """
+
+    def __init__(self) -> None:
+        """
+        Initialize the R2BucketHandler and its S3-compatible client.
+
+        Raises:
+            R2BucketHandlerException: If a required CLOUDFLARE_* env var is
+                missing, or the client fails to initialize.
+        """
+        self._logger = common.get_logger()
+        self._base_dir = common.get_base_dir()
+
+        self._logger.info("Initializing the R2 bucket handler.")
+
+        account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+        access_key_id = os.getenv("CLOUDFLARE_ACCESS_KEY_ID")
+        secret_access_key = os.getenv("CLOUDFLARE_SECRET_ACCESS_KEY")
+        self._bucket = os.getenv("CLOUDFLARE_R2_BUCKET")
+
+        if not all([account_id, access_key_id, secret_access_key, self._bucket]):
+            raise R2BucketHandlerException(
+                "One or more CLOUDFLARE_* environment variables are missing."
             )
 
-            self._bucket = os.getenv("R2_BUCKET")
-
-            logger.info(
-                f"Connecting to https://{os.getenv('ACCOUNT_ID')}.r2.cloudflarestorage.com"
+        try:
+            self._boto3_client = boto3.client(
+                "s3",
+                endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
+                aws_access_key_id=access_key_id,
+                aws_secret_access_key=secret_access_key,
             )
         except Exception as e:
             raise R2BucketHandlerException(
-                f"Failed to initialize the bucket client: {e}"
+                f"Failed to initialize the bucket client. {e}"
             )
+
+        self._logger.info("Successfully initialized the R2 bucket handler.")
 
     def _list_images(self) -> list[str]:
         """
         Get a list of all the objects (images) in the bucket.
 
-        Returns:
-            list[str]: The list of objects (images).
+        Return:
+            list[str]: The list of object keys (image IDs) in the bucket.
+                Not currently called by any other method — the per-key
+                CRUD methods below use `_exists` (a single head_object
+                call) instead, since listing the whole bucket to check one
+                key doesn't scale. Kept for a future admin/reconciliation
+                feature.
+
+        Raises:
+            R2BucketHandlerException: If listing the bucket fails.
+        """
+        self._logger.info(f"Listing images in '{self._bucket}'.")
+        try:
+            response = self._boto3_client.list_objects_v2(Bucket=self._bucket)
+        except Exception as e:
+            raise R2BucketHandlerException(f"Failed to list images. {e}")
+
+        images = [content.get("Key", "") for content in response.get("Contents", [])]
+        self._logger.info(f"Found '{len(images)}' images.")
+        return images
+
+    def _exists(self, filename: str) -> bool:
+        """
+        Check whether an object with the given filename (ID) exists.
+
+        Args:
+            filename (str): The object key (image ID) to check.
+
+        Return:
+            bool: True if the object exists, False otherwise.
+
+        Raises:
+            R2BucketHandlerException: If the check fails for a reason other
+                than the object not existing.
         """
         try:
-            logger.info(f"Listing images in '{self._bucket}'.")
-            response = self._boto3_client.list_objects_v2(
-                Bucket=self._bucket,
+            self._boto3_client.head_object(Bucket=self._bucket, Key=filename)
+            return True
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code")
+            if error_code in ("404", "NoSuchKey"):
+                return False
+            raise R2BucketHandlerException(
+                f"Failed to check if '{filename}' exists. {e}"
             )
-            images = [
-                content.get("Key", "") for content in response.get("Contents", [])
-            ]
-            logger.info(f"Found '{len(images)}' images.")
-            return images
-        except (Exception,):
-            return []
 
     def get(self, image_id: str) -> Optional[BytesIO]:
         """
@@ -74,109 +115,129 @@ class R2BucketHandler:
             image_id (str): The ID of the image to get.
 
         Return:
-            Optional[BytesIO]: The image in memory if found.
-        """
-        try:
-            response = self._boto3_client.get_object(
-                Bucket=self._bucket,
-                Key=image_id,
-            )
-            image_bytes: BytesIO = BytesIO(response.get("Body").read())
-            image_bytes.seek(0)
-            return image_bytes
-        except self._boto3_client.exceptions.NoSuchKey:
-            return None
-        except (Exception,):
-            return None
+            Optional[BytesIO]: The image in memory, or None if not found.
 
-    def create(self, image_bytes: BytesIO, filename: str) -> None:
+        Raises:
+            R2BucketHandlerException: If the download fails for a reason
+                other than the object not existing.
+        """
+        self._logger.info(f"Getting image '{image_id}'.")
+        try:
+            response = self._boto3_client.get_object(Bucket=self._bucket, Key=image_id)
+        except self._boto3_client.exceptions.NoSuchKey:
+            self._logger.info("No such image")
+            return None
+        except Exception as e:
+            raise R2BucketHandlerException(f"Failed to get image '{image_id}'. {e}")
+
+        image_bytes = BytesIO(response.get("Body").read())
+        image_bytes.seek(0)
+        self._logger.info("Successfully obtained the image.")
+        return image_bytes
+
+    def create(
+        self,
+        image_bytes: BytesIO,
+        filename: str,
+        content_type: str = "application/octet-stream",
+    ) -> None:
         """
         Create an image with the given filename (ID).
 
         Args:
             image_bytes (BytesIO): The image as an in-memory file.
             filename (str): The final name (ID) of the file on the R2 bucket.
+            content_type (str): The MIME type to store with the object.
 
-        Returns:
-            None
+        Return:
+            None:
 
         Raises:
-            Exception: If HTTP error occurred during the creation.
+            R2BucketHandlerException: If an image with that filename already
+                exists, or the upload fails.
         """
-        try:
-            logger.info(f"Creating image '{filename}'.")
-            existing_images = self._list_images()
-            if filename in existing_images:
-                logger.info("Image already exists.")
-                return None
+        self._logger.info(f"Creating image '{filename}'.")
 
+        if self._exists(filename):
+            raise R2BucketHandlerException(f"Image '{filename}' already exists.")
+
+        try:
             self._boto3_client.upload_fileobj(
                 image_bytes,
                 self._bucket,
                 filename,
-                ExtraArgs={"ContentType": "image/webp"},
+                ExtraArgs={"ContentType": content_type},
             )
-            logger.info("Image created successfully.")
-        except Exception:
-            logger.error("Failed to create image")
+        except Exception as e:
+            raise R2BucketHandlerException(f"Failed to create image '{filename}'. {e}")
 
-    def update(self, image_bytes: BytesIO, filename: str) -> None:
+        self._logger.info("Successfully created the image.")
+
+    def update(
+        self,
+        image_bytes: BytesIO,
+        filename: str,
+        content_type: str = "application/octet-stream",
+    ) -> None:
         """
         Update an image with the given filename (ID).
 
         Args:
             image_bytes (BytesIO): The updated image as an in-memory file.
             filename (str): The name (ID) of the file on the R2 bucket.
+            content_type (str): The MIME type to store with the object.
 
-        Returns:
-            None
+        Return:
+            None:
+
+        Raises:
+            R2BucketHandlerException: If no image with that filename exists,
+                or the update fails.
         """
-        try:
-            logger.info(f"Updating image '{filename}'.")
-            existing_images = self._list_images()
-            if filename not in existing_images:
-                logger.info("No image in the bucket matches the image")
-                return
+        self._logger.info(f"Updating image '{filename}'.")
 
+        if not self._exists(filename):
+            raise R2BucketHandlerException(f"No image found for '{filename}'.")
+
+        try:
             self._boto3_client.put_object(
                 Body=image_bytes,
                 Bucket=self._bucket,
                 Key=filename,
+                ContentType=content_type,
             )
-            logger.info("Image updated successfully.")
-        except Exception:
-            logger.error("Failed to update the image.")
+        except Exception as e:
+            raise R2BucketHandlerException(f"Failed to update image '{filename}'. {e}")
+
+        self._logger.info("Successfully updated the image.")
 
     def delete(self, filenames: list[str]) -> None:
         """
         Delete images with the given filenames from the bucket.
 
         Args:
-            filenames (list[str]): The list of image filenames (IDs) to delete.
+            filenames (list[str]): The list of image filenames (IDs) to
+                delete.
 
-        Returns:
-            None
+        Return:
+            None:
+
+        Raises:
+            R2BucketHandlerException: If the delete request fails.
         """
-        logger.info(f"Deleting '{len(filenames)}' images.")
-        existing_images = self._list_images()
+        self._logger.info(f"Deleting '{len(filenames)}' images.")
 
-        deleted_count = 0
-        for filename in filenames:
-            if filename not in existing_images:
-                logger.info(f"No image in the bucket matches the image '{filename}'")
-                continue
-            try:
-                logger.info(f"Deleting image '{filename}' images.")
-                self._boto3_client.delete_object(
-                    Bucket=self._bucket,
-                    Key=filename,
-                )
-                logger.info("Image deleted successfully.")
-                deleted_count += 1
-            except (Exception,):
-                logger.error(f"Failed to delete the image '{filename}'.")
+        if not filenames:
+            self._logger.info("No filenames provided.")
+            return
 
-        if not deleted_count:
-            logger.warning("No image to delete.")
-        else:
-            logger.info(f"Deleted '{deleted_count}' images.")
+        try:
+            response = self._boto3_client.delete_objects(
+                Bucket=self._bucket,
+                Delete={"Objects": [{"Key": filename} for filename in filenames]},
+            )
+        except Exception as e:
+            raise R2BucketHandlerException(f"Failed to delete images. {e}")
+
+        deleted_count = len(response.get("Deleted", []))
+        self._logger.info(f"Deleted '{deleted_count}' images.")
