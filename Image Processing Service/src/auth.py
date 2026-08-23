@@ -1,21 +1,25 @@
 import os
 import pathlib
+from datetime import datetime, timedelta, timezone
 
 import jwt
 from dotenv import load_dotenv
-
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from common import common
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent.parent
 SECURITY = HTTPBearer()
 ALGORITHM = "HS256"
-load_dotenv(BASE_DIR / ".env")
+_LOGGER = common.get_logger()
 
 
 class Auth:
-    def __init__(self) -> None:
-        pass
+    """
+    Handles user authentication: decoding/validating access tokens and
+    issuing new ones.
+    """
 
     @staticmethod
     def get_current_user(
@@ -31,34 +35,45 @@ class Auth:
             str: User's internal ID.
 
         Raises:
-            HTTPException (HTTPException): When access token expired or invalid.
+            HTTPException: When access token expired or invalid.
         """
+        _LOGGER.info("Validating access token.")
         token = credentials.credentials
         try:
-            payload = jwt.decode(token, os.getenv("JWT_SECRET"), algorithms=[ALGORITHM])
+            payload = jwt.decode(
+                token, os.getenv("APP_JWT_SECRET"), algorithms=[ALGORITHM]
+            )
             user_id = payload.get("sub")
             if user_id is None:
-                raise HTTPException("Invalid token.")
-            return user_id
+                raise HTTPException(status_code=401, detail="Invalid token.")
         except jwt.ExpiredSignatureError:
-            raise HTTPException("Expired token.")
+            raise HTTPException(status_code=401, detail="Expired token.")
         except jwt.InvalidTokenError:
-            raise HTTPException("Invalid token.")
+            raise HTTPException(status_code=401, detail="Invalid token.")
+
+        _LOGGER.info(f"Successfully validated token for user '{user_id}'.")
+        return user_id
 
     @staticmethod
-    def create_access_token(user_id: str, expire: int) -> str:
+    def create_access_token(user_id: str, expire_minutes: int) -> str:
         """
         Create an access token for a user using her internal ID.
 
         Args:
             user_id (str): The ID of the user.
-            expire (int): Token expiration time in minutes.
+            expire_minutes (int): Minutes from now until the token expires.
 
         Returns:
             str: The access token.
         """
+        _LOGGER.info(f"Creating access token for user '{user_id}'.")
+
+        expire_at = datetime.now(timezone.utc) + timedelta(minutes=expire_minutes)
         payload = {
             "sub": user_id,
-            "exp": expire,
+            "exp": expire_at,
         }
-        return jwt.encode(payload, os.getenv("JWT_SECRET"), algorithm=ALGORITHM)
+        token = jwt.encode(payload, os.getenv("APP_JWT_SECRET"), algorithm=ALGORITHM)
+
+        _LOGGER.info(f"Successfully created access token for user '{user_id}'.")
+        return token
