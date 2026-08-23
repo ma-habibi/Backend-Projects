@@ -59,5 +59,32 @@ async def handle_image_processing_service_exception(
     return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
 
+@app.post("/register")
+async def sign_up(user: models.User) -> dict:
+    """
+    Register a new user and log them in.
+
+    Args:
+        user (models.User): The username/password payload.
+
+    Return:
+        dict: {"user": {...}, "token": "..."}
+    """
+    _LOGGER.info(f"Handling POST /register for username '{user.username}'.")
+
+    created_user = image_processing_service.register_user(user.username, user.password)
+    token = image_processing_service.login(user.username, user.password)
+
+    _LOGGER.info(f"Successfully handled POST /register for username '{user.username}'.")
+    return {
+        "user": {
+            "id": created_user.id,
+            "username": created_user.username,
+            "created_at": created_user.created_at.isoformat(),
+        },
+        "token": token,
+    }
+
+
 if __name__ == "__main__":
     uvicorn.run("server:app", port=8000, log_level="info")
