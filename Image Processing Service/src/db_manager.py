@@ -511,3 +511,36 @@ class DBManager:
             self._logger.info("No such image")
         else:
             self._logger.info("Successfully Deleted the image")
+
+    def get_password_hash_by_username(self, username: str) -> Optional[str]:
+        """
+        Get the stored password hash for the given username.
+
+        Args:
+            username (str): The username to search for.
+
+        Return:
+            Optional[str]: The stored password hash, or None if no user
+                with that username exists.
+
+        Raises:
+            DBManagerException: If the query fails.
+        """
+        self._logger.info(f"Getting password hash for username '{username}'.")
+        with self._get_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT password_hash
+                    FROM users
+                    WHERE username = %s
+                    """,
+                    (username,),
+                )
+                row = cursor.fetchone()
+
+        if row is None:
+            self._logger.info("No such user")
+            return None
+        self._logger.info("Successfully obtained the password hash")
+        return next(iter(row), None)
