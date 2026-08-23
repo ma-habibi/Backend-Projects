@@ -41,6 +41,23 @@ image_processing_service = ImageProcessingService(db=db_manager)
 _LOGGER.info("Successfully initialized application dependencies.")
 
 
+def _user_to_dict(user: UserRecord) -> dict:
+    """
+    Shape a UserRecord into the dict returned by /register and /login.
+
+    Args:
+        user (UserRecord): The user to serialize.
+
+    Return:
+        dict: {"id": ..., "username": ..., "created_at": ...}
+    """
+    return {
+        "id": user.id,
+        "username": user.username,
+        "created_at": user.created_at.isoformat(),
+    }
+
+
 @app.exception_handler(ImageProcessingServiceException)
 async def handle_image_processing_service_exception(
     request, exc: ImageProcessingServiceException
