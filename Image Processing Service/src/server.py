@@ -7,7 +7,6 @@ Route handlers are plain module-level `async` functions registered via `@app.<me
 
 - A `@app.exception_handler(ImageProcessingServiceException)` handler translates the service-layer exception into the appropriate HTTP status code and JSON error body, so individual route handlers don't need repetitive `try/except` blocks.
 
-# - `POST /login` → `log_in(user: models.User) -> dict`: Calls `ImageProcessingService.login(user.username, user.password)` and returns `{"user": ..., "token": ...}`. Returns `401 Unauthorized` if `ImageProcessingServiceException` indicates bad credentials.
 # - `POST /images` → `upload(file: UploadFile, user_id: int = Depends(Auth.get_current_user)) -> dict`: Reads the multipart file into a `BytesIO`, calls `ImageProcessingService.upload_image(user_id, image_bytes, file.filename)`, and returns the resulting `ImageRecord` (URL + metadata) as JSON. Returns `400 Bad Request` if `ImageProcessingServiceException` indicates an unsupported/invalid image.
 # - `POST /images/{image_id}/transform` → `transform(image_id: str, req: models.ImageTransformRequest, user_id: int = Depends(Auth.get_current_user)) -> dict`: Calls `ImageProcessingService.transform_image(image_id, user_id, req.transformations)` and returns the updated `ImageRecord`. Returns `404 Not Found` if the image doesn't exist or isn't owned by `user_id`, `400 Bad Request` for invalid transformation parameters — both signaled via `ImageProcessingServiceException`.
 # - `GET /images/{image_id}` → `retrieve_image(image_id: str, format: str | None = None, user_id: int = Depends(Auth.get_current_user))`: Calls `ImageProcessingService.get_image(image_id, user_id, format)` and returns a `StreamingResponse` of the image bytes with the appropriate `Content-Type`. When `format` is omitted, the image is streamed as currently stored; when supplied (e.g. `?format=webp`), the response reflects a one-off, non-persisted conversion. Returns `404 Not Found` via `ImageProcessingServiceException` if missing or not owned by `user_id`, `400 Bad Request` if `format` is unsupported.
@@ -16,27 +15,28 @@ Route handlers are plain module-level `async` functions registered via `@app.<me
 
 
 """
-
 import pathlib
 
 import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-import models
-from common import common
-from db_manager import DBManager, UserRecord
-from image_processing_service import (
-    ImageProcessingService,
-    ImageProcessingServiceException,
-)
+from PIL import Image, ImageOps, UnidentifiedImageError
+
+from .common import common
+from .db_manager import DBManager, UserRecord
+from .r2_bucket_handler import R2BucketHandler
+from .image_processing_service import ImageProcessingService
+from .image_processing_service_exception import ImageProcessingServiceException
+from src import models
 
 _LOGGER = common.get_logger()
 _BASE_DIR = common.get_base_dir()
 app = FastAPI()
 _LOGGER.info("Initializing application dependencies.")
 db_manager = DBManager()
-image_processing_service = ImageProcessingService(db=db_manager)
+r2_bucket_handler = R2BucketHandler()
+image_processing_service = ImageProcessingService(db=db_manager, r2=r2_bucket_handler)
 _LOGGER.info("Successfully initialized application dependencies.")
 
 
@@ -121,4 +121,4 @@ async def log_in(user: models.User) -> dict:
 
 
 if __name__ == "__main__":
-    uvicorn.run("server:app", port=8000, log_level="info")
+    uvicorn.run("src.server:app", port=8000, log_level="info")
