@@ -55,3 +55,42 @@ def sample_image_record() -> ImageRecord:
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
+
+
+class TestResize:
+    def test_resize_changes_dimensions(self, service, red_image):
+        params = models.Resize(width=50, height=25)
+        result = service._resize(red_image, params)
+        assert result.size == (50, 25)
+
+    @pytest.mark.parametrize("width,height", [(0, 10), (10, 0), (-5, 10)])
+    def test_resize_rejects_non_positive_dimensions(
+        self, service, red_image, width, height
+    ):
+        params = models.Resize(width=width, height=height)
+        with pytest.raises(ValueError, match="positive"):
+            service._resize(red_image, params)
+
+
+class TestUploadImage:
+    def test_upload_rejects_invalid_image_bytes(self, service):
+        garbage = BytesIO(b"this is not an image")
+        with pytest.raises(ImageProcessingServiceException) as exc_info:
+            service.upload_image("user-1", garbage, "not_an_image.txt")
+        assert exc_info.value.status_code == 400
+
+    def test_upload_rolls_back_db_record_on_r2_failure(
+        self, service, mock_db, mock_r2, sample_image_record
+    ):
+        mock_db.create_image.return_value = sample_image_record
+        mock_r2.create.side_effect = R2BucketHandlerException("boom")
+
+        buffer = BytesIO()
+        Image.new("RGB", (10, 10)).save(buffer, format="PNG")
+        buffer.seek(0)
+
+        with pytest.raises(ImageProcessingServiceException) as exc_info:
+            service.upload_image("user-1", buffer, "test.png")
+
+        assert exc_info.value.status_code == 500
+        mock_db.delete_image.assert_called_once_with(sample_image_record.id, "user-1")
