@@ -8,8 +8,8 @@ from datetime import datetime
 import psycopg
 from psycopg_pool import ConnectionPool
 
-from common import common
-from db_manager_exception import DBManagerException
+from .common import common
+from .db_manager_exception import DBManagerException
 
 
 @dataclass(frozen=True)

@@ -5,7 +5,7 @@ from typing import Optional
 import boto3
 from botocore.exceptions import ClientError
 
-from common import common
+from .common import common
 
 
 class R2BucketHandlerException(Exception):
