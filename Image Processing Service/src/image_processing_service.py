@@ -12,13 +12,18 @@ Contains the core business logic, orchestrating `Auth`, `DbManager`, and `R2Buck
 """
 
 import os
+from io import BytesIO
+from typing import Optional
 
 import bcrypt
+from PIL import Image, ImageOps, UnidentifiedImageError
 
-from auth import Auth
-from common import common
-from image_processing_service_exception import ImageProcessingServiceException
-from db_manager import DBManager, DBManagerException, UserRecord
+from .image_processing_service_exception import ImageProcessingServiceException
+from .auth import Auth
+from .common import common
+from .db_manager import DBManager, DBManagerException, UserRecord, ImageRecord
+from .r2_bucket_handler import R2BucketHandler, R2BucketHandlerException
+from src import models
 
 
 class ImageProcessingService:
@@ -47,6 +52,47 @@ class ImageProcessingService:
 
         self._logger.info("Initializing the image processing service app.")
         self._logger.info("Successfully initialized the app.")
+
+    def _extract_metadata(self, image: Image.Image) -> dict:
+        """
+        Read format/width/height and compute size_bytes from an image.
+
+        If the image carries a `.info["quality"]` (set by `_compress`),
+        that quality is reused when measuring size_bytes, so the reported
+        size matches what will actually be written to storage.
+
+        Args:
+            image (PIL.Image.Image): The image to inspect.
+
+        Return:
+            dict: {"format": str, "width": int, "height": int,
+                "size_bytes": int}, in the shape expected by
+                `DbManager.create_image` / `update_image`.
+        """
+        self._logger.info("Extracting the metadata from the image")
+        fmt = (image.format or "PNG").upper()
+
+        save_kwargs = {}
+        quality = image.info.get("quality")
+        if quality is not None and fmt in ("JPEG", "WEBP"):
+            save_kwargs["quality"] = quality
+
+        save_image = image
+        if fmt in self._NO_ALPHA_FORMATS and save_image.mode in ("RGBA", "P"):
+            save_image = save_image.convert("RGB")
+
+        buffer = BytesIO()
+        save_image.save(buffer, format=fmt, **save_kwargs)
+
+        metadata = {
+            "format": fmt.lower(),
+            "width": image.width,
+            "height": image.height,
+            "size_bytes": buffer.tell(),
+        }
+        self._logger.debug(metadata)
+        self._logger.debug("Successfully extracted the metadata from the image")
+        return metadata
 
     def _apply_transformations(
         self, image: Image.Image, transformations: "models.Transformations"
@@ -164,3 +210,66 @@ class ImageProcessingService:
 
         self._logger.info(f"Successfully logged in user '{username}'.")
         return token, user
+
+    def upload_image(
+        self, user_id: str, image_bytes: BytesIO, filename: str
+    ) -> ImageRecord:
+        """
+        Validate, store, and record a newly uploaded image.
+
+        Args:
+            user_id (str): The uploading user's internal ID.
+            image_bytes (BytesIO): The raw uploaded file bytes.
+            filename (str): The original filename provided by the client.
+
+        Return:
+            ImageRecord: The newly created image record.
+
+        Raises:
+            ImageProcessingServiceException: If the file is not a valid,
+                supported image (400), or the upload otherwise fails (500).
+        """
+        self._logger.info(f"Uploading image '{filename}' for user '{user_id}'.")
+
+        raw_bytes = image_bytes.read()
+        try:
+            image = Image.open(BytesIO(raw_bytes))
+            image.verify()
+            image = Image.open(BytesIO(raw_bytes))
+            image.load()
+        except UnidentifiedImageError as e:
+            raise ImageProcessingServiceException(
+                f"'{filename}' is not a valid image file. {e}", status_code=400
+            )
+
+        if (image.format or "").upper() not in self._SUPPORTED_FORMATS:
+            raise ImageProcessingServiceException(
+                f"Unsupported image format '{image.format}'.", status_code=400
+            )
+
+        metadata = self._extract_metadata(image)
+
+        try:
+            record = self._db.create_image(user_id, filename, metadata)
+        except DBManagerException as e:
+            raise ImageProcessingServiceException(
+                f"Failed to create image record. {e}", status_code=500
+            )
+
+        try:
+            self._r2.create(
+                BytesIO(raw_bytes),
+                record.id,
+                content_type=f"image/{metadata['format']}",
+            )
+        except R2BucketHandlerException as e:
+            try:
+                self._db.delete_image(record.id, user_id)
+            except DBManagerException:
+                pass
+            raise ImageProcessingServiceException(
+                f"Failed to store image bytes for '{filename}'. {e}", status_code=500
+            )
+
+        self._logger.info(f"Successfully uploaded image '{filename}' as '{record.id}'.")
+        return record
