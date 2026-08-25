@@ -93,6 +93,35 @@ class ImageProcessingService:
         self._logger.debug("Successfully extracted the metadata from the image")
         return metadata
 
+    def _encode(self, image: Image.Image) -> BytesIO:
+        """
+        Serialize an image to bytes using its current .format and quality.
+
+        Shared by transform_image and get_image's on-the-fly conversion,
+        so both write bytes the same way _extract_metadata measured them.
+
+        Args:
+            image (PIL.Image.Image): The image to serialize.
+
+        Return:
+            BytesIO: The encoded image bytes, seeked to position 0.
+        """
+        fmt = (image.format or "PNG").upper()
+
+        save_kwargs = {}
+        quality = image.info.get("quality")
+        if quality is not None and fmt in ("JPEG", "WEBP"):
+            save_kwargs["quality"] = quality
+
+        save_image = image
+        if fmt in self._NO_ALPHA_FORMATS and save_image.mode in ("RGBA", "P"):
+            save_image = save_image.convert("RGB")
+
+        buffer = BytesIO()
+        save_image.save(buffer, format=fmt, **save_kwargs)
+        buffer.seek(0)
+        return buffer
+
     def _resize(self, image: Image.Image, params: "models.Resize") -> Image.Image:
         """
         Resize the image to params.width x params.height.
@@ -291,3 +320,85 @@ class ImageProcessingService:
 
         self._logger.info(f"Successfully uploaded image '{filename}' as '{record.id}'.")
         return record
+
+    def transform_image(
+        self, image_id: str, user_id: str, transformations: "models.Transformations"
+    ) -> ImageRecord:
+        """
+        Apply transformations to an existing image and persist the result.
+
+        Args:
+            image_id (str): The image's ID.
+            user_id (str): The ID of the user who must own the image.
+            transformations (models.Transformations): The requested
+                transformations.
+
+        Return:
+            ImageRecord: The updated image record.
+
+        Raises:
+            ImageProcessingServiceException: If the image is not found or
+                not owned by user_id (404), a transformation parameter is
+                invalid (400), or storage otherwise fails (500).
+        """
+        self._logger.info(f"Transforming image '{image_id}' for user '{user_id}'.")
+
+        try:
+            record = self._db.get_image(image_id, user_id)
+        except DBManagerException as e:
+            raise ImageProcessingServiceException(
+                f"Failed to fetch image record. {e}", status_code=500
+            )
+
+        if record is None:
+            raise ImageProcessingServiceException(
+                f"Image '{image_id}' not found.", status_code=404
+            )
+
+        try:
+            image_bytes = self._r2.get(record.id)
+        except R2BucketHandlerException as e:
+            raise ImageProcessingServiceException(
+                f"Failed to fetch image bytes. {e}", status_code=500
+            )
+
+        if image_bytes is None:
+            raise ImageProcessingServiceException(
+                f"Image '{image_id}' bytes not found in storage.", status_code=404
+            )
+
+        image = Image.open(image_bytes)
+        image.load()
+
+        try:
+            transformed_image = self._apply_transformations(image, transformations)
+        except ValueError as e:
+            raise ImageProcessingServiceException(
+                f"Invalid transformation parameters. {e}", status_code=400
+            )
+        except (FileNotFoundError, UnidentifiedImageError) as e:
+            raise ImageProcessingServiceException(
+                f"Failed to apply watermark. {e}", status_code=500
+            )
+
+        metadata = self._extract_metadata(transformed_image)
+        output_bytes = self._encode(transformed_image)
+
+        try:
+            self._r2.update(
+                output_bytes, record.id, content_type=f"image/{metadata['format']}"
+            )
+        except R2BucketHandlerException as e:
+            raise ImageProcessingServiceException(
+                f"Failed to store transformed image. {e}", status_code=500
+            )
+
+        try:
+            updated_record = self._db.update_image(record.id, user_id, metadata)
+        except DBManagerException as e:
+            raise ImageProcessingServiceException(
+                f"Failed to update image record. {e}", status_code=500
+            )
+
+        self._logger.info(f"Successfully transformed image '{image_id}'.")
+        return updated_record
