@@ -3,16 +3,6 @@
 Contains the core business logic, orchestrating `Auth`, `DbManager`, and `R2BucketHandler` on behalf of the endpoint handlers in `server.py`. Endpoint handlers call into this class rather than talking to `DbManager`/`R2BucketHandler` directly, so route code stays thin. Image manipulation itself is delegated to [`Pillow`](https://pillow.readthedocs.io/).
 
 - `__init__(self, db: DbManager, r2: R2BucketHandler)`: Stores references to an already-initialized `DbManager` and `R2BucketHandler` (constructed once at app startup and injected here, rather than each service call opening its own clients).
-- Private method `_apply_transformations(self, image: PIL.Image.Image, transformations: Transformations) -> PIL.Image.Image`: Applies the requested transformations to an in-memory `PIL.Image` in a fixed order (crop → resize → rotate → flip/mirror → filters → watermark → format/compress), returning the transformed image. Only the transformations present (non-`None`/non-default) on the `Transformations` model are applied.
-- Private method `_resize(self, image: PIL.Image.Image, params: Resize) -> PIL.Image.Image`: Resizes the image to `params.width` × `params.height`.
-- Private method `_crop(self, image: PIL.Image.Image, params: Crop) -> PIL.Image.Image`: Crops a `params.width` × `params.height` region starting at `(params.x, params.y)`.
-- Private method `_rotate(self, image: PIL.Image.Image, degrees: float) -> PIL.Image.Image`: Rotates the image by the given number of degrees, expanding the canvas to fit.
-- Private method `_flip(self, image: PIL.Image.Image) -> PIL.Image.Image`: Flips the image vertically (top/bottom).
-- Private method `_mirror(self, image: PIL.Image.Image) -> PIL.Image.Image`: Mirrors the image horizontally (left/right).
-- Private method `_watermark(self, image: PIL.Image.Image) -> PIL.Image.Image`: Overlays a fixed watermark asset (bundled with the app) onto the bottom-right corner of the image.
-- Private method `_apply_filters(self, image: PIL.Image.Image, filters: Filters) -> PIL.Image.Image`: Applies each requested filter (`grayscale`, `sepia`) in sequence.
-- Private method `_compress(self, image: PIL.Image.Image, quality: int) -> PIL.Image.Image`: Re-encodes the image at the given JPEG/WebP quality level to reduce file size.
-- Private method `_extract_metadata(self, image: PIL.Image.Image) -> dict`: Reads `format`, `width`, `height`, and computes `size_bytes` from a `PIL.Image`, in the shape expected by `DbManager.create_image` / `update_image`.
 - Public method `upload_image(self, user_id: int, image_bytes: BytesIO, filename: str) -> ImageRecord`: Generates a new image ID (UUID), reads metadata from the uploaded bytes via `_extract_metadata`, stores the bytes via `R2BucketHandler.create`, and persists the metadata via `DbManager.create_image`. Raises `ImageProcessingServiceException` if the file is not a valid, supported image.
 - Public method `transform_image(self, image_id: str, user_id: int, transformations: Transformations) -> ImageRecord`: Confirms ownership via `DbManager.get_image`, fetches the current bytes via `R2BucketHandler.get`, applies `_apply_transformations`, writes the result back via `R2BucketHandler.update`, and updates metadata via `DbManager.update_image`. Raises `ImageProcessingServiceException` if the image is not found, not owned by `user_id`, or a transformation parameter is invalid (e.g. crop region outside image bounds).
 - Public method `get_image(self, image_id: str, user_id: int, format: str | None = None) -> tuple[BytesIO, ImageRecord]`: Confirms ownership via `DbManager.get_image`, fetches bytes via `R2BucketHandler.get`. If `format` is given and differs from the stored format, converts a copy via Pillow before returning — this conversion is not persisted back to R2 or reflected in the `DbManager` record. Raises `ImageProcessingServiceException` if not found, not owned by `user_id`, or `format` is unsupported.
@@ -37,16 +27,23 @@ class ImageProcessingService:
     R2BucketHandler on behalf of the endpoint handlers in server.py.
     """
 
-    def __init__(self, db: DBManager) -> None:
+    _SUPPORTED_FORMATS = {"JPEG", "PNG", "WEBP", "GIF", "BMP"}
+    _NO_ALPHA_FORMATS = {"JPEG", "BMP"}
+
+    def __init__(self, db: DBManager, r2: R2BucketHandler) -> None:
         """
         Initialize the ImageProcessingService.
 
         Args:
             db (DBManager): An already-initialized DBManager instance.
+            r2 (R2BucketHandler): An already-initialized R2BucketHandler
+                instance.
         """
         self._logger = common.get_logger()
         self._base_dir = common.get_base_dir()
         self._db = db
+        self._r2 = r2
+        self._watermark_path = self._base_dir / "assets" / "watermark.png"
 
         self._logger.info("Initializing the image processing service app.")
         self._logger.info("Successfully initialized the app.")
