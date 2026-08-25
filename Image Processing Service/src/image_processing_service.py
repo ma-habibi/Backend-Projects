@@ -48,6 +48,49 @@ class ImageProcessingService:
         self._logger.info("Initializing the image processing service app.")
         self._logger.info("Successfully initialized the app.")
 
+    def _apply_transformations(
+        self, image: Image.Image, transformations: "models.Transformations"
+    ) -> Image.Image:
+        """
+        Apply the requested transformations to an in-memory image.
+
+        Fixed order: crop -> resize -> rotate -> flip/mirror -> filters ->
+        watermark -> format/compress. Only transformations present
+        (non-None / non-default) on `transformations` are applied.
+
+        Args:
+            image (PIL.Image.Image): The source image.
+            transformations (models.Transformations): The requested
+                transformations.
+
+        Return:
+            PIL.Image.Image: The transformed image.
+
+        Raises:
+            ValueError: If a transformation parameter is invalid (e.g. a
+                crop region outside the image bounds, or an unsupported
+                format/quality value).
+        """
+        if transformations.crop is not None:
+            image = self._crop(image, transformations.crop)
+        if transformations.resize is not None:
+            image = self._resize(image, transformations.resize)
+        if transformations.rotate is not None:
+            image = self._rotate(image, transformations.rotate)
+        if transformations.flip:
+            image = self._flip(image)
+        if transformations.mirror:
+            image = self._mirror(image)
+        if transformations.filters is not None:
+            image = self._apply_filters(image, transformations.filters)
+        if transformations.watermark:
+            image = self._watermark(image)
+        if transformations.format is not None:
+            image = self._convert_format(image, transformations.format)
+        if transformations.compress is not None:
+            image = self._compress(image, transformations.compress)
+        return image
+
     def register_user(self, username: str, password: str) -> UserRecord:
         """
         Hash the password and create a new user.
