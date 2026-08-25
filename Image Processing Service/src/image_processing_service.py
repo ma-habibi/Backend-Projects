@@ -3,7 +3,6 @@
 Contains the core business logic, orchestrating `Auth`, `DbManager`, and `R2BucketHandler` on behalf of the endpoint handlers in `server.py`. Endpoint handlers call into this class rather than talking to `DbManager`/`R2BucketHandler` directly, so route code stays thin. Image manipulation itself is delegated to [`Pillow`](https://pillow.readthedocs.io/).
 
 - `__init__(self, db: DbManager, r2: R2BucketHandler)`: Stores references to an already-initialized `DbManager` and `R2BucketHandler` (constructed once at app startup and injected here, rather than each service call opening its own clients).
-- Public method `upload_image(self, user_id: int, image_bytes: BytesIO, filename: str) -> ImageRecord`: Generates a new image ID (UUID), reads metadata from the uploaded bytes via `_extract_metadata`, stores the bytes via `R2BucketHandler.create`, and persists the metadata via `DbManager.create_image`. Raises `ImageProcessingServiceException` if the file is not a valid, supported image.
 - Public method `transform_image(self, image_id: str, user_id: int, transformations: Transformations) -> ImageRecord`: Confirms ownership via `DbManager.get_image`, fetches the current bytes via `R2BucketHandler.get`, applies `_apply_transformations`, writes the result back via `R2BucketHandler.update`, and updates metadata via `DbManager.update_image`. Raises `ImageProcessingServiceException` if the image is not found, not owned by `user_id`, or a transformation parameter is invalid (e.g. crop region outside image bounds).
 - Public method `get_image(self, image_id: str, user_id: int, format: str | None = None) -> tuple[BytesIO, ImageRecord]`: Confirms ownership via `DbManager.get_image`, fetches bytes via `R2BucketHandler.get`. If `format` is given and differs from the stored format, converts a copy via Pillow before returning — this conversion is not persisted back to R2 or reflected in the `DbManager` record. Raises `ImageProcessingServiceException` if not found, not owned by `user_id`, or `format` is unsupported.
 - Public method `list_images(self, user_id: int, page: int, limit: int) -> tuple[list[ImageRecord], int]`: Delegates directly to `DbManager.list_images`.
@@ -93,6 +92,25 @@ class ImageProcessingService:
         self._logger.debug(metadata)
         self._logger.debug("Successfully extracted the metadata from the image")
         return metadata
+
+    def _resize(self, image: Image.Image, params: "models.Resize") -> Image.Image:
+        """
+        Resize the image to params.width x params.height.
+
+        Args:
+            image (PIL.Image.Image): The source image.
+            params (models.Resize): The target width/height.
+
+        Return:
+            PIL.Image.Image: The resized image.
+
+        Raises:
+            ValueError: If width or height is not positive.
+        """
+        width, height = int(params.width), int(params.height)
+        if width <= 0 or height <= 0:
+            raise ValueError("Resize width and height must be positive.")
+        return image.resize((width, height))
 
     def _apply_transformations(
         self, image: Image.Image, transformations: "models.Transformations"
