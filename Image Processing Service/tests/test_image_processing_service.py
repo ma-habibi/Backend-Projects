@@ -72,6 +72,32 @@ class TestResize:
             service._resize(red_image, params)
 
 
+class TestCrop:
+    def test_crop_extracts_correct_region(self, service):
+        # Left half red, right half blue — crop should grab only one side.
+        image = Image.new("RGB", (100, 100))
+        for x in range(100):
+            for y in range(100):
+                image.putpixel((x, y), (255, 0, 0) if x < 50 else (0, 0, 255))
+
+        params = models.Crop(x=60, y=0, width=20, height=20)
+        cropped = service._crop(image, params)
+
+        assert cropped.size == (20, 20)
+        assert cropped.getpixel((0, 0)) == (0, 0, 255)
+
+    def test_crop_out_of_bounds_raises(self, service, red_image):
+        # red_image is 100x50; this box runs past the right edge.
+        params = models.Crop(x=90, y=0, width=50, height=10)
+        with pytest.raises(ValueError, match="outside image bounds"):
+            service._crop(red_image, params)
+
+    def test_crop_negative_origin_raises(self, service, red_image):
+        params = models.Crop(x=-5, y=0, width=10, height=10)
+        with pytest.raises(ValueError, match="outside image bounds"):
+            service._crop(red_image, params)
+
+
 class TestUploadImage:
     def test_upload_rejects_invalid_image_bytes(self, service):
         garbage = BytesIO(b"this is not an image")

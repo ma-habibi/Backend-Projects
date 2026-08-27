@@ -141,6 +141,34 @@ class ImageProcessingService:
             raise ValueError("Resize width and height must be positive.")
         return image.resize((width, height))
 
+    def _crop(self, image: Image.Image, params: "models.Crop") -> Image.Image:
+        """
+        Crop a params.width x params.height region starting at (x, y).
+
+        Args:
+            image (PIL.Image.Image): The source image.
+            params (models.Crop): The crop region.
+
+        Return:
+            PIL.Image.Image: The cropped image.
+
+        Raises:
+            ValueError: If the crop region is outside the image bounds, or
+                width/height is not positive.
+        """
+        x, y = int(params.x), int(params.y)
+        width, height = int(params.width), int(params.height)
+        if width <= 0 or height <= 0:
+            raise ValueError("Crop width and height must be positive.")
+
+        box = (x, y, x + width, y + height)
+        if x < 0 or y < 0 or box[2] > image.width or box[3] > image.height:
+            raise ValueError(
+                f"Crop region {box} is outside image bounds "
+                f"{(image.width, image.height)}."
+            )
+        return image.crop(box)
+
     def _apply_transformations(
         self, image: Image.Image, transformations: "models.Transformations"
     ) -> Image.Image:
