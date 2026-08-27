@@ -248,6 +248,26 @@ class ImageProcessingService:
 
         return base if image.mode == "RGBA" else base.convert(image.mode)
 
+    def _apply_filters(
+        self, image: Image.Image, filters: "models.Filters"
+    ) -> Image.Image:
+        """
+        Apply each requested filter (grayscale, sepia) in sequence.
+
+        Args:
+            image (PIL.Image.Image): The source image.
+            filters (models.Filters): Which filters to apply.
+
+        Return:
+            PIL.Image.Image: The filtered image.
+        """
+        if filters.grayscale:
+            image = ImageOps.grayscale(image)
+        if filters.sepia:
+            grayscale = ImageOps.grayscale(image)
+            image = ImageOps.colorize(grayscale, black="#3f2f1e", white="#f5deb3")
+        return image
+
     def _apply_transformations(
         self, image: Image.Image, transformations: "models.Transformations"
     ) -> Image.Image:
