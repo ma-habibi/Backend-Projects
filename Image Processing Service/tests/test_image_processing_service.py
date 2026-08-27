@@ -98,6 +98,17 @@ class TestCrop:
             service._crop(red_image, params)
 
 
+class TestRotate:
+    def test_rotate_90_swaps_dimensions(self, service, red_image):
+        # 100x50 rotated 90 degrees, expand=True, should become ~50x100.
+        rotated = service._rotate(red_image, 90)
+        assert rotated.size == (50, 100)
+
+    def test_rotate_0_is_a_noop_on_size(self, service, red_image):
+        rotated = service._rotate(red_image, 0)
+        assert rotated.size == red_image.size
+
+
 class TestUploadImage:
     def test_upload_rejects_invalid_image_bytes(self, service):
         garbage = BytesIO(b"this is not an image")

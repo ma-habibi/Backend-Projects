@@ -169,6 +169,20 @@ class ImageProcessingService:
             )
         return image.crop(box)
 
+    def _rotate(self, image: Image.Image, degrees: float) -> Image.Image:
+        """
+        Rotate the image by the given number of degrees, expanding the
+        canvas to fit.
+
+        Args:
+            image (PIL.Image.Image): The source image.
+            degrees (float): Degrees to rotate counter-clockwise.
+
+        Return:
+            PIL.Image.Image: The rotated image.
+        """
+        return image.rotate(degrees, expand=True)
+
     def _apply_transformations(
         self, image: Image.Image, transformations: "models.Transformations"
     ) -> Image.Image:
