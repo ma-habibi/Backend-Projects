@@ -136,12 +136,18 @@ class TestWatermark:
         result = service._watermark(red_image)
         assert result.size == red_image.size
 
-    def test_watermark_changes_corner_pixels(self, service):
+    def test_watermark_changes_bottom_right_region(self, service):
+        # Check a region overlapping where the watermark actually lands,
+        # rather than one exact pixel — the watermark is scaled and inset
+        # by a margin, so the literal last pixel (width-1, height-1) may
+        # legitimately fall outside it depending on image size.
         image = Image.new("RGB", (400, 400), color=(0, 0, 255))
-        original_corner = image.getpixel((399, 399))
+        original_region = list(image.crop((280, 340, 400, 400)).getdata())
+
         result = service._watermark(image)
-        # Bottom-right corner should differ now that a watermark sits there.
-        assert result.getpixel((399, 399)) != original_corner
+        result_region = list(result.crop((280, 340, 400, 400)).getdata())
+
+        assert result_region != original_region
 
     def test_watermark_missing_asset_raises(
         self, service, red_image, monkeypatch, tmp_path

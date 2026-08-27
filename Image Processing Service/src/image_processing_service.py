@@ -229,21 +229,17 @@ class ImageProcessingService:
 
         margin = 16
         max_width = max(image.width // 4, 1)
-
         if watermark.width > max_width:
             scale = max_width / watermark.width
             watermark = watermark.resize(
-                (max_width, max(int(watermark.height * scale), 1)),
-                Image.Resampling.LANCZOS,
+                (max_width, max(int(watermark.height * scale), 1))
             )
 
         base = image.convert("RGBA")
-
         position = (
             base.width - watermark.width - margin,
             base.height - watermark.height - margin,
         )
-
         base.alpha_composite(watermark, dest=position)
 
         return base if image.mode == "RGBA" else base.convert(image.mode)
