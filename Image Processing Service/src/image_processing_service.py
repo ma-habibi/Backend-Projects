@@ -207,6 +207,47 @@ class ImageProcessingService:
         """
         return image.transpose(Image.FLIP_LEFT_RIGHT)
 
+    def _watermark(self, image: Image.Image) -> Image.Image:
+        """
+        Overlay the bundled watermark asset onto the bottom-right corner.
+
+        The watermark is scaled down if it's wider than 1/4 of the base
+        image's width, and inset by a fixed margin from the corner.
+
+        Args:
+            image (PIL.Image.Image): The source image.
+
+        Return:
+            PIL.Image.Image: The watermarked image.
+
+        Raises:
+            FileNotFoundError: If the watermark asset is missing.
+            PIL.UnidentifiedImageError: If the watermark asset is not a
+                valid image.
+        """
+        watermark = Image.open(self._watermark_path).convert("RGBA")
+
+        margin = 16
+        max_width = max(image.width // 4, 1)
+
+        if watermark.width > max_width:
+            scale = max_width / watermark.width
+            watermark = watermark.resize(
+                (max_width, max(int(watermark.height * scale), 1)),
+                Image.Resampling.LANCZOS,
+            )
+
+        base = image.convert("RGBA")
+
+        position = (
+            base.width - watermark.width - margin,
+            base.height - watermark.height - margin,
+        )
+
+        base.alpha_composite(watermark, dest=position)
+
+        return base if image.mode == "RGBA" else base.convert(image.mode)
+
     def _apply_transformations(
         self, image: Image.Image, transformations: "models.Transformations"
     ) -> Image.Image:
