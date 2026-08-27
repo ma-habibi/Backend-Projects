@@ -183,6 +183,30 @@ class ImageProcessingService:
         """
         return image.rotate(degrees, expand=True)
 
+    def _flip(self, image: Image.Image) -> Image.Image:
+        """
+        Flip the image vertically (top/bottom).
+
+        Args:
+            image (PIL.Image.Image): The source image.
+
+        Return:
+            PIL.Image.Image: The flipped image.
+        """
+        return image.transpose(Image.FLIP_TOP_BOTTOM)
+
+    def _mirror(self, image: Image.Image) -> Image.Image:
+        """
+        Mirror the image horizontally (left/right).
+
+        Args:
+            image (PIL.Image.Image): The source image.
+
+        Return:
+            PIL.Image.Image: The mirrored image.
+        """
+        return image.transpose(Image.FLIP_LEFT_RIGHT)
+
     def _apply_transformations(
         self, image: Image.Image, transformations: "models.Transformations"
     ) -> Image.Image:

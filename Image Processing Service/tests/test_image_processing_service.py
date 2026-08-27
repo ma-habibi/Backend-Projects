@@ -109,6 +109,28 @@ class TestRotate:
         assert rotated.size == red_image.size
 
 
+class TestFlipMirror:
+    def test_flip_reverses_vertically(self, service):
+        image = Image.new("RGB", (2, 2))
+        image.putpixel((0, 0), (255, 0, 0))  # top-left red
+        image.putpixel((0, 1), (0, 255, 0))  # bottom-left green
+
+        flipped = service._flip(image)
+
+        assert flipped.getpixel((0, 0)) == (0, 255, 0)
+        assert flipped.getpixel((0, 1)) == (255, 0, 0)
+
+    def test_mirror_reverses_horizontally(self, service):
+        image = Image.new("RGB", (2, 2))
+        image.putpixel((0, 0), (255, 0, 0))  # top-left red
+        image.putpixel((1, 0), (0, 255, 0))  # top-right green
+
+        mirrored = service._mirror(image)
+
+        assert mirrored.getpixel((0, 0)) == (0, 255, 0)
+        assert mirrored.getpixel((1, 0)) == (255, 0, 0)
+
+
 class TestUploadImage:
     def test_upload_rejects_invalid_image_bytes(self, service):
         garbage = BytesIO(b"this is not an image")
