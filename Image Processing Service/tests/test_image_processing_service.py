@@ -131,6 +131,45 @@ class TestFlipMirror:
         assert mirrored.getpixel((1, 0)) == (255, 0, 0)
 
 
+class TestWatermark:
+    def test_watermark_preserves_dimensions(self, service, red_image):
+        result = service._watermark(red_image)
+        assert result.size == red_image.size
+
+    def test_watermark_changes_corner_pixels(self, service):
+        image = Image.new("RGB", (400, 400), color=(0, 0, 255))
+        original_corner = image.getpixel((399, 399))
+        result = service._watermark(image)
+        # Bottom-right corner should differ now that a watermark sits there.
+        assert result.getpixel((399, 399)) != original_corner
+
+    def test_watermark_missing_asset_raises(
+        self, service, red_image, monkeypatch, tmp_path
+    ):
+        service._watermark_path = tmp_path / "does_not_exist.png"
+        with pytest.raises(FileNotFoundError):
+            service._watermark(red_image)
+
+
+class TestFilters:
+    def test_grayscale_removes_color(self, service, red_image):
+        filters = models.Filters(grayscale=True, sepia=False)
+        result = service._apply_filters(red_image, filters)
+        assert result.mode == "L"
+
+    def test_sepia_tints_the_image(self, service, red_image):
+        filters = models.Filters(grayscale=False, sepia=True)
+        result = service._apply_filters(red_image, filters)
+        r, g, b = result.getpixel((0, 0))
+        # Sepia should not be a neutral gray — R should dominate.
+        assert r > g > b
+
+    def test_no_filters_requested_is_a_noop(self, service, red_image):
+        filters = models.Filters(grayscale=False, sepia=False)
+        result = service._apply_filters(red_image, filters)
+        assert result.getpixel((0, 0)) == (255, 0, 0)
+
+
 class TestUploadImage:
     def test_upload_rejects_invalid_image_bytes(self, service):
         garbage = BytesIO(b"this is not an image")
