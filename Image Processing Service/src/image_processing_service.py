@@ -264,6 +264,52 @@ class ImageProcessingService:
             image = ImageOps.colorize(grayscale, black="#3f2f1e", white="#f5deb3")
         return image
 
+    def _compress(self, image: Image.Image, quality: int) -> Image.Image:
+        """
+        Re-encode the image at the given quality level to reduce file size.
+
+        The chosen quality is stashed on the returned image's `.info`
+        dict so that `_extract_metadata` and the final save-to-storage
+        step reuse the same value — otherwise the reported size_bytes
+        and the actually-stored bytes could silently diverge.
+
+        Args:
+            image (PIL.Image.Image): The source image.
+            quality (int): Target JPEG/WebP quality, 1-100.
+
+        Return:
+            PIL.Image.Image: The re-encoded image.
+
+        Raises:
+            ValueError: If quality is not between 1 and 100.
+        """
+        if not (1 <= quality <= 100):
+            raise ValueError("Compress quality must be between 1 and 100.")
+
+        save_format = (image.format or "JPEG").upper()
+        if save_format not in ("JPEG", "WEBP"):
+            self._logger.warning(
+                f"Can't compress an image with the format {save_format}."
+            )
+            return image
+
+        working_image = image
+        if save_format in self._NO_ALPHA_FORMATS and working_image.mode in (
+            "RGBA",
+            "P",
+        ):
+            working_image = working_image.convert("RGB")
+
+        buffer = BytesIO()
+        working_image.save(buffer, format=save_format, quality=quality, optimize=True)
+        buffer.seek(0)
+
+        compressed_image = Image.open(buffer)
+        compressed_image.load()
+        compressed_image.format = save_format
+        compressed_image.info["quality"] = quality
+        return compressed_image
+
     def _apply_transformations(
         self, image: Image.Image, transformations: "models.Transformations"
     ) -> Image.Image:
