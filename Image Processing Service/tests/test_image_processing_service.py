@@ -57,6 +57,25 @@ def sample_image_record() -> ImageRecord:
     )
 
 
+class TestExtractMetadata:
+    def test_extracts_dimensions_and_format(self, service, red_image):
+        metadata = service._extract_metadata(red_image)
+        assert metadata["width"] == 100
+        assert metadata["height"] == 50
+        assert metadata["format"] == "jpeg"
+        assert metadata["size_bytes"] > 0
+
+    def test_size_reflects_compress_quality(self, service, red_image):
+        low_quality = service._compress(red_image, 10)
+        high_quality = service._compress(red_image, 95)
+
+        low_metadata = service._extract_metadata(low_quality)
+        high_metadata = service._extract_metadata(high_quality)
+
+        # Lower quality should produce a smaller (or equal) file.
+        assert low_metadata["size_bytes"] <= high_metadata["size_bytes"]
+
+
 class TestResize:
     def test_resize_changes_dimensions(self, service, red_image):
         params = models.Resize(width=50, height=25)
