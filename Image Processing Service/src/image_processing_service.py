@@ -3,7 +3,6 @@
 Contains the core business logic, orchestrating `Auth`, `DbManager`, and `R2BucketHandler` on behalf of the endpoint handlers in `server.py`. Endpoint handlers call into this class rather than talking to `DbManager`/`R2BucketHandler` directly, so route code stays thin. Image manipulation itself is delegated to [`Pillow`](https://pillow.readthedocs.io/).
 
 - `__init__(self, db: DbManager, r2: R2BucketHandler)`: Stores references to an already-initialized `DbManager` and `R2BucketHandler` (constructed once at app startup and injected here, rather than each service call opening its own clients).
-- Public method `transform_image(self, image_id: str, user_id: int, transformations: Transformations) -> ImageRecord`: Confirms ownership via `DbManager.get_image`, fetches the current bytes via `R2BucketHandler.get`, applies `_apply_transformations`, writes the result back via `R2BucketHandler.update`, and updates metadata via `DbManager.update_image`. Raises `ImageProcessingServiceException` if the image is not found, not owned by `user_id`, or a transformation parameter is invalid (e.g. crop region outside image bounds).
 - Public method `get_image(self, image_id: str, user_id: int, format: str | None = None) -> tuple[BytesIO, ImageRecord]`: Confirms ownership via `DbManager.get_image`, fetches bytes via `R2BucketHandler.get`. If `format` is given and differs from the stored format, converts a copy via Pillow before returning — this conversion is not persisted back to R2 or reflected in the `DbManager` record. Raises `ImageProcessingServiceException` if not found, not owned by `user_id`, or `format` is unsupported.
 - Public method `list_images(self, user_id: int, page: int, limit: int) -> tuple[list[ImageRecord], int]`: Delegates directly to `DbManager.list_images`.
 - Public method `delete_image(self, image_id: str, user_id: int) -> None`: Confirms ownership via `DbManager.get_image`, then deletes the object via `R2BucketHandler.delete` and the record via `DbManager.delete_image`. Raises `ImageProcessingServiceException` if not found or not owned by `user_id`.
@@ -51,6 +50,34 @@ class ImageProcessingService:
 
         self._logger.info("Initializing the image processing service app.")
         self._logger.info("Successfully initialized the app.")
+
+    def _convert_format(self, image: Image.Image, format: str) -> Image.Image:
+        """
+        Set the image's target output format for the final save.
+
+        Does not re-encode immediately; it only updates `.format`, which
+        the caller uses when actually writing the bytes out. Converts to
+        RGB first if the target format doesn't support an alpha channel.
+
+        Args:
+            image (PIL.Image.Image): The source image.
+            format (str): The desired format (e.g. "jpeg", "png", "webp").
+
+        Return:
+            PIL.Image.Image: The image with `.format` set to the target.
+
+        Raises:
+            ValueError: If `format` is not a supported format.
+        """
+        target = format.strip().upper()
+        if target not in self._SUPPORTED_FORMATS:
+            raise ValueError(f"Unsupported format '{format}'.")
+
+        if target in self._NO_ALPHA_FORMATS and image.mode in ("RGBA", "P"):
+            image = image.convert("RGB")
+
+        image.format = target
+        return image
 
     def _extract_metadata(self, image: Image.Image) -> dict:
         """
@@ -571,3 +598,73 @@ class ImageProcessingService:
 
         self._logger.info(f"Successfully transformed image '{image_id}'.")
         return updated_record
+
+    def get_image(
+        self, image_id: str, user_id: str, format: Optional[str] = None
+    ) -> tuple[BytesIO, ImageRecord]:
+        """
+        Fetch an image's bytes and metadata, optionally converting format.
+
+        Args:
+            image_id (str): The image's ID.
+            user_id (str): The ID of the user who must own the image.
+            format (Optional[str]): If given and different from the stored
+                format, a one-off, non-persisted conversion is returned.
+
+        Return:
+            tuple[BytesIO, ImageRecord]: The image bytes (possibly
+                converted) and its stored metadata record (never changed
+                by an on-the-fly conversion).
+
+        Raises:
+            ImageProcessingServiceException: If not found or not owned by
+                user_id (404), or format is unsupported (400).
+        """
+        self._logger.info(f"Getting image '{image_id}' for user '{user_id}'.")
+
+        try:
+            record = self._db.get_image(image_id, user_id)
+        except DBManagerException as e:
+            raise ImageProcessingServiceException(
+                f"Failed to fetch image record. {e}", status_code=500
+            )
+
+        if record is None:
+            raise ImageProcessingServiceException(
+                f"Image '{image_id}' not found.", status_code=404
+            )
+
+        try:
+            image_bytes = self._r2.get(record.id)
+        except R2BucketHandlerException as e:
+            raise ImageProcessingServiceException(
+                f"Failed to fetch image bytes. {e}", status_code=500
+            )
+
+        if image_bytes is None:
+            raise ImageProcessingServiceException(
+                f"Image '{image_id}' bytes not found in storage.", status_code=404
+            )
+
+        if format is None or format.strip().upper() == record.format.upper():
+            self._logger.info("Successfully obtained the image.")
+            return image_bytes, record
+
+        target = format.strip().upper()
+        if target not in self._SUPPORTED_FORMATS:
+            raise ImageProcessingServiceException(
+                f"Unsupported format '{format}'.", status_code=400
+            )
+
+        try:
+            image = Image.open(image_bytes)
+            image.load()
+            image = self._convert_format(image, target)
+            converted_bytes = self._encode(image)
+        except (ValueError, UnidentifiedImageError) as e:
+            raise ImageProcessingServiceException(
+                f"Failed to convert image to '{format}'. {e}", status_code=400
+            )
+
+        self._logger.info(f"Successfully obtained the image, converted to '{format}'.")
+        return converted_bytes, record
