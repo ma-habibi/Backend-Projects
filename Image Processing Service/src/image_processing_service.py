@@ -3,7 +3,6 @@
 Contains the core business logic, orchestrating `Auth`, `DbManager`, and `R2BucketHandler` on behalf of the endpoint handlers in `server.py`. Endpoint handlers call into this class rather than talking to `DbManager`/`R2BucketHandler` directly, so route code stays thin. Image manipulation itself is delegated to [`Pillow`](https://pillow.readthedocs.io/).
 
 - `__init__(self, db: DbManager, r2: R2BucketHandler)`: Stores references to an already-initialized `DbManager` and `R2BucketHandler` (constructed once at app startup and injected here, rather than each service call opening its own clients).
-- Public method `get_image(self, image_id: str, user_id: int, format: str | None = None) -> tuple[BytesIO, ImageRecord]`: Confirms ownership via `DbManager.get_image`, fetches bytes via `R2BucketHandler.get`. If `format` is given and differs from the stored format, converts a copy via Pillow before returning — this conversion is not persisted back to R2 or reflected in the `DbManager` record. Raises `ImageProcessingServiceException` if not found, not owned by `user_id`, or `format` is unsupported.
 - Public method `list_images(self, user_id: int, page: int, limit: int) -> tuple[list[ImageRecord], int]`: Delegates directly to `DbManager.list_images`.
 - Public method `delete_image(self, image_id: str, user_id: int) -> None`: Confirms ownership via `DbManager.get_image`, then deletes the object via `R2BucketHandler.delete` and the record via `DbManager.delete_image`. Raises `ImageProcessingServiceException` if not found or not owned by `user_id`.
 - Will raise `ImageProcessingServiceException` on invalid credentials, missing/unauthorized images, invalid transformation parameters, or unsupported image formats — wrapping and re-raising any underlying `DbManagerException` / `R2BucketHandlerException` it catches, so `server.py` only needs to handle one exception type from this layer.
@@ -668,3 +667,28 @@ class ImageProcessingService:
 
         self._logger.info(f"Successfully obtained the image, converted to '{format}'.")
         return converted_bytes, record
+
+    def list_images(
+        self, user_id: str, page: int, limit: int
+    ) -> tuple[list[ImageRecord], int]:
+        """
+        Get a paginated list of the given user's images.
+
+        Args:
+            user_id (str): The owning user's internal ID.
+            page (int): The 1-indexed page number.
+            limit (int): Max number of records per page.
+
+        Return:
+            tuple[list[ImageRecord], int]: The page of images, and the
+                total count across all pages.
+
+        Raises:
+            ImageProcessingServiceException: If the query fails.
+        """
+        try:
+            return self._db.list_images(user_id, page, limit)
+        except DBManagerException as e:
+            raise ImageProcessingServiceException(
+                f"Failed to list images. {e}", status_code=500
+            )
