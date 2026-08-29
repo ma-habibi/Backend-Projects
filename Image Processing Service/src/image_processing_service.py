@@ -692,3 +692,48 @@ class ImageProcessingService:
             raise ImageProcessingServiceException(
                 f"Failed to list images. {e}", status_code=500
             )
+
+    def delete_image(self, image_id: str, user_id: str) -> None:
+        """
+        Delete an image's bytes and record.
+
+        Args:
+            image_id (str): The image's ID.
+            user_id (str): The ID of the user who must own the image.
+
+        Return:
+            None:
+
+        Raises:
+            ImageProcessingServiceException: If not found or not owned by
+                user_id (404).
+        """
+        self._logger.info(f"Deleting image '{image_id}' for user '{user_id}'.")
+
+        try:
+            record = self._db.get_image(image_id, user_id)
+        except DBManagerException as e:
+            raise ImageProcessingServiceException(
+                f"Failed to fetch image record. {e}", status_code=500
+            )
+
+        if record is None:
+            raise ImageProcessingServiceException(
+                f"Image '{image_id}' not found.", status_code=404
+            )
+
+        try:
+            self._r2.delete([record.id])
+        except R2BucketHandlerException as e:
+            raise ImageProcessingServiceException(
+                f"Failed to delete image bytes. {e}", status_code=500
+            )
+
+        try:
+            self._db.delete_image(record.id, user_id)
+        except DBManagerException as e:
+            raise ImageProcessingServiceException(
+                f"Failed to delete image record. {e}", status_code=500
+            )
+
+        self._logger.info(f"Successfully deleted image '{image_id}'.")
