@@ -6,7 +6,7 @@ from typing import Optional, Iterator
 from datetime import datetime
 
 import psycopg
-from psycopg_pool import ConnectionPool
+from psycopg_pool import ConnectionPool, PoolTimeout
 
 from .common import common
 from .db_manager_exception import DBManagerException
@@ -144,7 +144,8 @@ class DBManager:
 
         try:
             self._pool = ConnectionPool(conninfo=database_url, open=True)
-        except psycopg.Error as e:
+            self._pool.wait()
+        except (PoolTimeout, psycopg.Error) as e:
             raise DBManagerException(
                 f"Failed to initialize the database connection pool. {e}"
             )

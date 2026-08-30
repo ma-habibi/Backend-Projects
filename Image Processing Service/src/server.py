@@ -17,6 +17,7 @@ Route handlers are plain module-level `async` functions registered via `@app.<me
 """
 
 import os
+import sys
 from io import BytesIO
 from typing import Optional
 
