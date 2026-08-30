@@ -15,16 +15,17 @@ Route handlers are plain module-level `async` functions registered via `@app.<me
 
 
 """
-import pathlib
+import os
+from io import BytesIO
+from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, File, UploadFile
+from fastapi.responses import JSONResponse, StreamingResponse
 
-from PIL import Image, ImageOps, UnidentifiedImageError
-
+from .auth import Auth
 from .common import common
-from .db_manager import DBManager, UserRecord
+from .db_manager import DBManager, ImageRecord, UserRecord
 from .r2_bucket_handler import R2BucketHandler
 from .image_processing_service import ImageProcessingService
 from .image_processing_service_exception import ImageProcessingServiceException
@@ -54,6 +55,37 @@ def _user_to_dict(user: UserRecord) -> dict:
         "id": user.id,
         "username": user.username,
         "created_at": user.created_at.isoformat(),
+    }
+
+
+def _image_to_dict(image: ImageRecord) -> dict:
+    """
+    Shape an ImageRecord into the dict returned by the image endpoints.
+
+    Includes a `url`, derived here from CLOUDFLARE_ACCOUNT_ID/
+    CLOUDFLARE_R2_BUCKET and the image's ID rather than stored on
+    ImageRecord itself, since the DB layer has no reason to know about
+    Cloudflare-specific naming.
+
+    Args:
+        image (ImageRecord): The image to serialize.
+
+    Return:
+        dict: The image's metadata plus a derived "url".
+    """
+    account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+    bucket = os.getenv("CLOUDFLARE_R2_BUCKET")
+    return {
+        "id": image.id,
+        "user_id": image.user_id,
+        "filename": image.filename,
+        "format": image.format,
+        "width": image.width,
+        "height": image.height,
+        "size_bytes": image.size_bytes,
+        "url": f"https://{account_id}.r2.cloudflarestorage.com/{bucket}/{image.id}",
+        "created_at": image.created_at.isoformat(),
+        "updated_at": image.updated_at.isoformat(),
     }
 
 
