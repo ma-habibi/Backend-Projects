@@ -70,7 +70,7 @@ class Auth:
 
         expire_at = datetime.now(timezone.utc) + timedelta(minutes=expire_minutes)
         payload = {
-            "sub": user_id,
+            "sub": str(user_id),
             "exp": expire_at,
         }
         token = jwt.encode(payload, os.getenv("APP_JWT_SECRET"), algorithm=ALGORITHM)
