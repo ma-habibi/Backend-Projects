@@ -162,5 +162,29 @@ async def log_in(user: models.User) -> dict:
     }
 
 
+@app.post("/images")
+async def upload(
+    file: UploadFile = File(...),
+    user_id: str = Depends(Auth.get_current_user),
+) -> dict:
+    """
+    Upload a new image.
+
+    Args:
+        file (UploadFile): The multipart image file.
+        user_id (str): The authenticated user's ID.
+
+    Return:
+        dict: The uploaded image's metadata (URL + metadata).
+    """
+    _LOGGER.info(f"Handling POST /images for user '{user_id}'.")
+
+    image_bytes = BytesIO(await file.read())
+    record = image_processing_service.upload_image(user_id, image_bytes, file.filename)
+
+    _LOGGER.info(f"Successfully handled POST /images for user '{user_id}'.")
+    return _image_to_dict(record)
+
+
 if __name__ == "__main__":
     uvicorn.run("src.server:app", port=8000, log_level="info")
