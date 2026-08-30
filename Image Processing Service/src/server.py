@@ -15,6 +15,7 @@ Route handlers are plain module-level `async` functions registered via `@app.<me
 
 
 """
+
 import os
 from io import BytesIO
 from typing import Optional
@@ -26,7 +27,9 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from .auth import Auth
 from .common import common
 from .db_manager import DBManager, ImageRecord, UserRecord
+from .db_manager_exception import DBManagerException
 from .r2_bucket_handler import R2BucketHandler
+from .r2_bucket_handler_exception import R2BucketHandlerException
 from .image_processing_service import ImageProcessingService
 from .image_processing_service_exception import ImageProcessingServiceException
 from src import models
@@ -35,8 +38,14 @@ _LOGGER = common.get_logger()
 _BASE_DIR = common.get_base_dir()
 app = FastAPI()
 _LOGGER.info("Initializing application dependencies.")
-db_manager = DBManager()
-r2_bucket_handler = R2BucketHandler()
+
+try:
+    db_manager = DBManager()
+    r2_bucket_handler = R2BucketHandler()
+except (DBManagerException, R2BucketHandlerException) as e:
+    _LOGGER.error(f"Can't start the server. {e}")
+    sys.exit(1)
+
 image_processing_service = ImageProcessingService(db=db_manager, r2=r2_bucket_handler)
 _LOGGER.info("Successfully initialized application dependencies.")
 
