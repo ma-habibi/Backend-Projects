@@ -7,8 +7,6 @@ Route handlers are plain module-level `async` functions registered via `@app.<me
 
 - A `@app.exception_handler(ImageProcessingServiceException)` handler translates the service-layer exception into the appropriate HTTP status code and JSON error body, so individual route handlers don't need repetitive `try/except` blocks.
 
-# - `POST /images` → `upload(file: UploadFile, user_id: int = Depends(Auth.get_current_user)) -> dict`: Reads the multipart file into a `BytesIO`, calls `ImageProcessingService.upload_image(user_id, image_bytes, file.filename)`, and returns the resulting `ImageRecord` (URL + metadata) as JSON. Returns `400 Bad Request` if `ImageProcessingServiceException` indicates an unsupported/invalid image.
-# - `POST /images/{image_id}/transform` → `transform(image_id: str, req: models.ImageTransformRequest, user_id: int = Depends(Auth.get_current_user)) -> dict`: Calls `ImageProcessingService.transform_image(image_id, user_id, req.transformations)` and returns the updated `ImageRecord`. Returns `404 Not Found` if the image doesn't exist or isn't owned by `user_id`, `400 Bad Request` for invalid transformation parameters — both signaled via `ImageProcessingServiceException`.
 # - `GET /images/{image_id}` → `retrieve_image(image_id: str, format: str | None = None, user_id: int = Depends(Auth.get_current_user))`: Calls `ImageProcessingService.get_image(image_id, user_id, format)` and returns a `StreamingResponse` of the image bytes with the appropriate `Content-Type`. When `format` is omitted, the image is streamed as currently stored; when supplied (e.g. `?format=webp`), the response reflects a one-off, non-persisted conversion. Returns `404 Not Found` via `ImageProcessingServiceException` if missing or not owned by `user_id`, `400 Bad Request` if `format` is unsupported.
 # - `GET /images` → `list_images(page: int = 1, limit: int | None = None, user_id: int = Depends(Auth.get_current_user)) -> dict`: Defaults `limit` to `APP_PAGINATION_LIMIT` from the environment when not supplied, calls `ImageProcessingService.list_images(user_id, page, limit)`, and returns `{"images": [...], "total": ..., "page": ..., "limit": ...}`.
 # - `GET /health` → `health() -> dict`: Returns `{"status": "ok"}`; used by the `Dockerfile` `HEALTHCHECK` and the `db` service's healthiness gating on `app` startup.
@@ -183,6 +181,35 @@ async def upload(
     record = image_processing_service.upload_image(user_id, image_bytes, file.filename)
 
     _LOGGER.info(f"Successfully handled POST /images for user '{user_id}'.")
+    return _image_to_dict(record)
+
+
+@app.post("/images/{image_id}/transform")
+async def transform(
+    image_id: str,
+    req: models.ImageTransformRequest,
+    user_id: str = Depends(Auth.get_current_user),
+) -> dict:
+    """
+    Apply transformations to an existing image.
+
+    Args:
+        image_id (str): The image's ID.
+        req (models.ImageTransformRequest): The requested transformations.
+        user_id (str): The authenticated user's ID.
+
+    Return:
+        dict: The updated image's metadata.
+    """
+    _LOGGER.info(f"Handling POST /images/{image_id}/transform for user '{user_id}'.")
+
+    record = image_processing_service.transform_image(
+        image_id, user_id, req.transformations
+    )
+
+    _LOGGER.info(
+        f"Successfully handled POST /images/{image_id}/transform for user '{user_id}'."
+    )
     return _image_to_dict(record)
 
 
