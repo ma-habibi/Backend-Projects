@@ -57,25 +57,6 @@ def sample_image_record() -> ImageRecord:
     )
 
 
-class TestExtractMetadata:
-    def test_extracts_dimensions_and_format(self, service, red_image):
-        metadata = service._extract_metadata(red_image)
-        assert metadata["width"] == 100
-        assert metadata["height"] == 50
-        assert metadata["format"] == "jpeg"
-        assert metadata["size_bytes"] > 0
-
-    def test_size_reflects_compress_quality(self, service, red_image):
-        low_quality = service._compress(red_image, 10)
-        high_quality = service._compress(red_image, 95)
-
-        low_metadata = service._extract_metadata(low_quality)
-        high_metadata = service._extract_metadata(high_quality)
-
-        # Lower quality should produce a smaller (or equal) file.
-        assert low_metadata["size_bytes"] <= high_metadata["size_bytes"]
-
-
 class TestResize:
     def test_resize_changes_dimensions(self, service, red_image):
         params = models.Resize(width=50, height=25)
@@ -150,6 +131,58 @@ class TestFlipMirror:
         assert mirrored.getpixel((1, 0)) == (255, 0, 0)
 
 
+class TestFilters:
+    def test_grayscale_removes_color(self, service, red_image):
+        filters = models.Filters(grayscale=True, sepia=False)
+        result = service._apply_filters(red_image, filters)
+        assert result.mode == "L"
+
+    def test_sepia_tints_the_image(self, service, red_image):
+        filters = models.Filters(grayscale=False, sepia=True)
+        result = service._apply_filters(red_image, filters)
+        r, g, b = result.getpixel((0, 0))
+        # Sepia should not be a neutral gray — R should dominate.
+        assert r > g > b
+
+    def test_no_filters_requested_is_a_noop(self, service, red_image):
+        filters = models.Filters(grayscale=False, sepia=False)
+        result = service._apply_filters(red_image, filters)
+        assert result.getpixel((0, 0)) == (255, 0, 0)
+
+
+class TestCompress:
+    def test_compress_stores_quality_on_info(self, service, red_image):
+        result = service._compress(red_image, 40)
+        assert result.info.get("quality") == 40
+
+    def test_compress_rejects_out_of_range_quality(self, service, red_image):
+        with pytest.raises(ValueError, match="between 1 and 100"):
+            service._compress(red_image, 150)
+
+    def test_compress_is_noop_for_lossless_format(self, service):
+        png_image = Image.new("RGB", (10, 10), color=(0, 255, 0))
+        png_image.format = "PNG"
+        result = service._compress(png_image, 40)
+        # PNG is lossless; compress should return the image unchanged
+        # rather than pretending a quality setting did something.
+        assert "quality" not in result.info
+
+
+class TestConvertFormat:
+    def test_convert_sets_format_attribute(self, service, red_image):
+        result = service._convert_format(red_image, "png")
+        assert result.format == "PNG"
+
+    def test_convert_rejects_unsupported_format(self, service, red_image):
+        with pytest.raises(ValueError, match="Unsupported format"):
+            service._convert_format(red_image, "tiff")
+
+    def test_convert_to_jpeg_drops_alpha(self, service):
+        rgba_image = Image.new("RGBA", (10, 10), color=(255, 0, 0, 128))
+        result = service._convert_format(rgba_image, "jpeg")
+        assert result.mode == "RGB"
+
+
 class TestWatermark:
     def test_watermark_preserves_dimensions(self, service, red_image):
         result = service._watermark(red_image)
@@ -176,23 +209,47 @@ class TestWatermark:
             service._watermark(red_image)
 
 
-class TestFilters:
-    def test_grayscale_removes_color(self, service, red_image):
-        filters = models.Filters(grayscale=True, sepia=False)
-        result = service._apply_filters(red_image, filters)
-        assert result.mode == "L"
+class TestExtractMetadata:
+    def test_extracts_dimensions_and_format(self, service, red_image):
+        metadata = service._extract_metadata(red_image)
+        assert metadata["width"] == 100
+        assert metadata["height"] == 50
+        assert metadata["format"] == "jpeg"
+        assert metadata["size_bytes"] > 0
 
-    def test_sepia_tints_the_image(self, service, red_image):
-        filters = models.Filters(grayscale=False, sepia=True)
-        result = service._apply_filters(red_image, filters)
-        r, g, b = result.getpixel((0, 0))
-        # Sepia should not be a neutral gray — R should dominate.
-        assert r > g > b
+    def test_size_reflects_compress_quality(self, service, red_image):
+        low_quality = service._compress(red_image, 10)
+        high_quality = service._compress(red_image, 95)
 
-    def test_no_filters_requested_is_a_noop(self, service, red_image):
-        filters = models.Filters(grayscale=False, sepia=False)
-        result = service._apply_filters(red_image, filters)
-        assert result.getpixel((0, 0)) == (255, 0, 0)
+        low_metadata = service._extract_metadata(low_quality)
+        high_metadata = service._extract_metadata(high_quality)
+
+        # Lower quality should produce a smaller (or equal) file.
+        assert low_metadata["size_bytes"] <= high_metadata["size_bytes"]
+
+
+class TestApplyTransformationsOrder:
+    def test_crop_runs_before_resize(self, service):
+        """
+        A regression guard for the fixed transformation order: if resize
+        ran before crop, cropping a region that's only valid pre-resize
+        would be silently wrong or raise, depending on dimensions. This
+        pins crop -> resize as the actual execution order.
+        """
+        image = Image.new("RGB", (100, 100), color=(255, 0, 0))
+        transformations = models.Transformations(
+            crop=models.Crop(x=0, y=0, width=100, height=100),
+            resize=models.Resize(width=10, height=10),
+        )
+        result = service._apply_transformations(image, transformations)
+        assert result.size == (10, 10)
+
+    def test_no_transformations_requested_returns_equivalent_image(
+        self, service, red_image
+    ):
+        transformations = models.Transformations()
+        result = service._apply_transformations(red_image, transformations)
+        assert result.size == red_image.size
 
 
 class TestUploadImage:
@@ -216,4 +273,24 @@ class TestUploadImage:
             service.upload_image("user-1", buffer, "test.png")
 
         assert exc_info.value.status_code == 500
+        mock_db.delete_image.assert_called_once_with(sample_image_record.id, "user-1")
+
+
+class TestDeleteImage:
+    def test_delete_not_found_raises_404(self, service, mock_db):
+        mock_db.get_image.return_value = None
+        with pytest.raises(ImageProcessingServiceException) as exc_info:
+            service.delete_image("missing-id", "user-1")
+        assert exc_info.value.status_code == 404
+        # Should never touch R2 if there's no record to begin with.
+        service._r2.delete.assert_not_called()
+
+    def test_delete_calls_r2_then_db_in_order(
+        self, service, mock_db, mock_r2, sample_image_record
+    ):
+        mock_db.get_image.return_value = sample_image_record
+
+        service.delete_image(sample_image_record.id, "user-1")
+
+        mock_r2.delete.assert_called_once_with([sample_image_record.id])
         mock_db.delete_image.assert_called_once_with(sample_image_record.id, "user-1")
