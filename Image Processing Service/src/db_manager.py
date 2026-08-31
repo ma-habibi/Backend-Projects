@@ -135,6 +135,7 @@ class DBManager:
         """
         self._logger = common.get_logger()
         self._base_dir = common.get_base_dir()
+        self._schema = os.getenv("DB_SCHEMA_NAME")
 
         self._logger.info("Initializing DBManager connection pool.")
 
@@ -194,11 +195,11 @@ class DBManager:
             try:
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        """
-                            INSERT INTO users (username, password_hash)
-                            VALUES (%s, %s)
-                            RETURNING id, username, created_at
-                            """,
+                        f"""
+                        INSERT INTO {self._schema}.users (username, password_hash)
+                        VALUES (%s, %s)
+                        RETURNING id, username, created_at
+                        """,
                         (username, password_hash),
                     )
                     row = cursor.fetchone()
@@ -231,9 +232,9 @@ class DBManager:
         with self._get_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
+                    f"""
                     SELECT id, username, created_at
-                    FROM users
+                    FROM {self._schema}.users
                     WHERE username = %s
                     """,
                     (username,),
@@ -266,9 +267,9 @@ class DBManager:
         with self._get_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
+                    f"""
                     SELECT id, username, created_at
-                    FROM users
+                    FROM {self._schema}.users
                     WHERE id = %s
                     """,
                     (user_id,),
@@ -307,8 +308,8 @@ class DBManager:
             try:
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        """
-                        INSERT INTO images
+                        f"""
+                        INSERT INTO {self._schema}.images
                             (id, user_id, filename, format, width, height, size_bytes)
                         VALUES (%s, %s, %s, %s, %s, %s, %s)
                         RETURNING
@@ -358,9 +359,9 @@ class DBManager:
         with self._get_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
+                    f"""
                     SELECT id, user_id, filename, format, width, height, size_bytes, created_at, updated_at
-                    FROM images
+                    FROM {self._schema}.images
                     WHERE id = %s AND user_id = %s
                     """,
                     (image_id, user_id),
@@ -408,7 +409,7 @@ class DBManager:
             with connection.cursor() as cursor:
                 cursor.execute(
                     f"""
-                    UPDATE images
+                    UPDATE {self._schema}.images
                     SET {set_clause}, updated_at = now()
                     WHERE id = %s AND user_id = %s
                     RETURNING id, user_id, filename, format, width, height, size_bytes, created_at, updated_at
@@ -457,15 +458,15 @@ class DBManager:
         with self._get_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT COUNT(*) FROM images WHERE user_id = %s",
+                    f"SELECT COUNT(*) FROM {self._schema}.images WHERE user_id = %s",
                     (user_id,),
                 )
                 total = cursor.fetchone()[0]
 
                 cursor.execute(
-                    """
+                    f"""
                     SELECT id, user_id, filename, format, width, height, size_bytes, created_at, updated_at
-                    FROM images
+                    FROM {self._schema}.images
                     WHERE user_id = %s
                     ORDER BY created_at DESC
                     LIMIT %s OFFSET %s
@@ -500,8 +501,8 @@ class DBManager:
         with self._get_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
-                    DELETE FROM images
+                    f"""
+                    DELETE FROM {self._schema}.images
                     WHERE id = %s AND user_id = %s
                     """,
                     (image_id, user_id),
@@ -531,9 +532,9 @@ class DBManager:
         with self._get_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
+                    f"""
                     SELECT password_hash
-                    FROM users
+                    FROM {self._schema}.users
                     WHERE username = %s
                     """,
                     (username,),
