@@ -213,5 +213,33 @@ async def transform(
     return _image_to_dict(record)
 
 
+@app.get("/images/{image_id}")
+async def retrieve_image(
+    image_id: str,
+    format: Optional[str] = None,
+    user_id: str = Depends(Auth.get_current_user),
+) -> StreamingResponse:
+    """
+    Retrieve an image's bytes, optionally converted to a different format.
+
+    Args:
+        image_id (str): The image's ID.
+        format (Optional[str]): If given, a one-off, non-persisted format
+            conversion applied before streaming.
+        user_id (str): The authenticated user's ID.
+
+    Return:
+        StreamingResponse: The image bytes, with a Content-Type matching
+            either `format` (if given) or the image's stored format.
+    """
+    _LOGGER.info(f"Handling GET /images/{image_id} for user '{user_id}'.")
+
+    image_bytes, record = image_processing_service.get_image(image_id, user_id, format)
+    content_type = f"image/{(format or record.format).lower()}"
+
+    _LOGGER.info(f"Successfully handled GET /images/{image_id} for user '{user_id}'.")
+    return StreamingResponse(iter([image_bytes.getvalue()]), media_type=content_type)
+
+
 if __name__ == "__main__":
     uvicorn.run("src.server:app", port=8000, log_level="info")
