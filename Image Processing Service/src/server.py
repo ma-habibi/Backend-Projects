@@ -277,5 +277,16 @@ async def list_images(
     }
 
 
+@app.get("/health")
+async def health() -> dict:
+    """
+    Basic liveness check.
+
+    Return:
+        dict: {"status": "ok"}
+    """
+    return {"status": "ok"}
+
+
 if __name__ == "__main__":
     uvicorn.run("src.server:app", port=8000, log_level="info")
