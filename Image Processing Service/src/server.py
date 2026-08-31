@@ -1,19 +1,3 @@
-"""
-TODO:
-#### New file server.py
-Wires together `FastAPI`, `Auth`, and `ImageProcessingService` into the HTTP API. Constructs a single `DbManager`, `R2BucketHandler`, and `ImageProcessingService` at module load (so each request reuses the same pooled DB connection / R2 client rather than re-initializing them), then defines the route handlers below. All routes except `/register`, `/login`, and `/health` are protected via `Depends(Auth.get_current_user)`, which supplies `user_id: int` to the handler.
-
-Route handlers are plain module-level `async` functions registered via `@app.<method>(...)` decorators, not methods on a class — FastAPI has no notion of dispatching to instance methods, so there's no `Server` class.
-
-- A `@app.exception_handler(ImageProcessingServiceException)` handler translates the service-layer exception into the appropriate HTTP status code and JSON error body, so individual route handlers don't need repetitive `try/except` blocks.
-
-# - `GET /images/{image_id}` → `retrieve_image(image_id: str, format: str | None = None, user_id: int = Depends(Auth.get_current_user))`: Calls `ImageProcessingService.get_image(image_id, user_id, format)` and returns a `StreamingResponse` of the image bytes with the appropriate `Content-Type`. When `format` is omitted, the image is streamed as currently stored; when supplied (e.g. `?format=webp`), the response reflects a one-off, non-persisted conversion. Returns `404 Not Found` via `ImageProcessingServiceException` if missing or not owned by `user_id`, `400 Bad Request` if `format` is unsupported.
-# - `GET /images` → `list_images(page: int = 1, limit: int | None = None, user_id: int = Depends(Auth.get_current_user)) -> dict`: Defaults `limit` to `APP_PAGINATION_LIMIT` from the environment when not supplied, calls `ImageProcessingService.list_images(user_id, page, limit)`, and returns `{"images": [...], "total": ..., "page": ..., "limit": ...}`.
-# - `GET /health` → `health() -> dict`: Returns `{"status": "ok"}`; used by the `Dockerfile` `HEALTHCHECK` and the `db` service's healthiness gating on `app` startup.
-
-
-"""
-
 import os
 import sys
 from io import BytesIO

@@ -1,13 +1,3 @@
-"""
-#### New classes ImageProcessingService and ImageProcessingServiceException (image_processing_service.py)
-Contains the core business logic, orchestrating `Auth`, `DbManager`, and `R2BucketHandler` on behalf of the endpoint handlers in `server.py`. Endpoint handlers call into this class rather than talking to `DbManager`/`R2BucketHandler` directly, so route code stays thin. Image manipulation itself is delegated to [`Pillow`](https://pillow.readthedocs.io/).
-
-- `__init__(self, db: DbManager, r2: R2BucketHandler)`: Stores references to an already-initialized `DbManager` and `R2BucketHandler` (constructed once at app startup and injected here, rather than each service call opening its own clients).
-- Public method `list_images(self, user_id: int, page: int, limit: int) -> tuple[list[ImageRecord], int]`: Delegates directly to `DbManager.list_images`.
-- Public method `delete_image(self, image_id: str, user_id: int) -> None`: Confirms ownership via `DbManager.get_image`, then deletes the object via `R2BucketHandler.delete` and the record via `DbManager.delete_image`. Raises `ImageProcessingServiceException` if not found or not owned by `user_id`.
-- Will raise `ImageProcessingServiceException` on invalid credentials, missing/unauthorized images, invalid transformation parameters, or unsupported image formats — wrapping and re-raising any underlying `DbManagerException` / `R2BucketHandlerException` it catches, so `server.py` only needs to handle one exception type from this layer.
-"""
-
 import os
 from io import BytesIO
 from typing import Optional
