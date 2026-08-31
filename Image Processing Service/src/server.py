@@ -241,5 +241,41 @@ async def retrieve_image(
     return StreamingResponse(iter([image_bytes.getvalue()]), media_type=content_type)
 
 
+@app.get("/images")
+async def list_images(
+    page: int = 1,
+    limit: Optional[int] = None,
+    user_id: str = Depends(Auth.get_current_user),
+) -> dict:
+    """
+    List the authenticated user's images, paginated.
+
+    Args:
+        page (int): The 1-indexed page number. Defaults to 1.
+        limit (Optional[int]): Max items per page. Defaults to
+            APP_PAGINATION_LIMIT when not supplied.
+        user_id (str): The authenticated user's ID.
+
+    Return:
+        dict: {"images": [...], "total": ..., "page": ..., "limit": ...}
+    """
+    if limit is None:
+        limit = int(os.getenv("APP_PAGINATION_LIMIT", "10"))
+
+    _LOGGER.info(
+        f"Handling GET /images for user '{user_id}', page {page}, limit {limit}."
+    )
+
+    images, total = image_processing_service.list_images(user_id, page, limit)
+
+    _LOGGER.info(f"Successfully handled GET /images for user '{user_id}'.")
+    return {
+        "images": [_image_to_dict(image) for image in images],
+        "total": total,
+        "page": page,
+        "limit": limit,
+    }
+
+
 if __name__ == "__main__":
     uvicorn.run("src.server:app", port=8000, log_level="info")
