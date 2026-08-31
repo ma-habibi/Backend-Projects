@@ -144,7 +144,11 @@ class DBManager:
             raise DBManagerException("DATABASE_URL environment variable is not set.")
 
         try:
-            self._pool = ConnectionPool(conninfo=database_url, open=True)
+            self._pool = ConnectionPool(
+                conninfo=database_url,
+                check=ConnectionPool.check_connection,
+                open=True,
+            )
             self._pool.wait()
         except (PoolTimeout, psycopg.Error) as e:
             raise DBManagerException(
