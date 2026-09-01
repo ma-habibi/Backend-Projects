@@ -1,6 +1,6 @@
 # Image Processing Service
 
-A backend service for uploading, transforming, and retrieving images — similar in spirit to Cloudinary. Built as the `Image Processing Service` project from `roadmap.sh`: https://roadmap.sh/projects/image-processing-service 
+A backend service for uploading, transforming, and retrieving images — similar in spirit to Cloudinary. Built as the `Image Processing Service` project from `roadmap.sh`: [https://roadmap.sh/projects/image-processing-service](https://roadmap.sh/projects/image-processing-service)
 
 **Live instance:** https://image-processing-service-39j4.onrender.com/
 
