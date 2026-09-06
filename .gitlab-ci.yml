@@ -1,0 +1,45 @@
+stages:
+  - test
+
+python_tests:
+  image: python:3.13-slim
+
+  script:
+    - |
+      set -e
+      echo "Running Python tests."
+
+      for subdir in */; do
+        [ -d "$subdir" ] || continue
+
+        echo "Checking for Python project: $subdir"
+
+        python_file=$(find "$subdir" -type f -name "*.py" \
+          -not -path "*/venv/*" \
+          -not -path "*/.venv/*" \
+          -not -path "*/__pycache__/*" \
+          -print -quit)
+
+        if [ -z "$python_file" ]; then
+          echo "No Python files found, skipping: $subdir"
+          continue
+        fi
+
+        echo "Testing Python project: $subdir"
+
+        cd "$subdir"
+
+        python -m pip install --quiet virtualenv
+        virtualenv venv
+
+        if [ -f requirements.txt ]; then
+          venv/bin/pip install -r requirements.txt
+        fi
+
+        venv/bin/pip install pytest
+
+        # No tests are collected.
+        venv/bin/pytest . || test $? -eq 5
+
+        cd ..
+      done
