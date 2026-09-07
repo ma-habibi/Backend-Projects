@@ -1,11 +1,15 @@
+from datetime import datetime, timezone
 from io import BytesIO
 from unittest.mock import MagicMock
 
+import bcrypt
+import jwt
 import pytest
 from PIL import Image
 
+from src.auth import ALGORITHM
 from src.common import common
-from src.db_manager import DBManager, DBManagerException, ImageRecord
+from src.db_manager import DBManager, DBManagerException, ImageRecord, UserRecord
 from src.r2_bucket_handler import R2BucketHandler, R2BucketHandlerException
 from src.image_processing_service import ImageProcessingService
 from src.image_processing_service_exception import ImageProcessingServiceException
@@ -37,6 +41,17 @@ def red_image() -> Image.Image:
     image = Image.new("RGB", (100, 50), color=(255, 0, 0))
     image.format = "JPEG"
     return image
+
+
+@pytest.fixture
+def sample_user_record() -> UserRecord:
+    """A representative UserRecord as DBManager.get_user_by_username/id
+    would return (never carries the password hash)."""
+    return UserRecord(
+        id="user-1",
+        username="alice",
+        created_at=datetime.now(timezone.utc),
+    )
 
 
 @pytest.fixture
@@ -74,7 +89,6 @@ class TestResize:
 
 class TestCrop:
     def test_crop_extracts_correct_region(self, service):
-        # Left half red, right half blue — crop should grab only one side.
         image = Image.new("RGB", (100, 100))
         for x in range(100):
             for y in range(100):
@@ -87,7 +101,6 @@ class TestCrop:
         assert cropped.getpixel((0, 0)) == (0, 0, 255)
 
     def test_crop_out_of_bounds_raises(self, service, red_image):
-        # red_image is 100x50; this box runs past the right edge.
         params = models.Crop(x=90, y=0, width=50, height=10)
         with pytest.raises(ValueError, match="outside image bounds"):
             service._crop(red_image, params)
@@ -100,7 +113,6 @@ class TestCrop:
 
 class TestRotate:
     def test_rotate_90_swaps_dimensions(self, service, red_image):
-        # 100x50 rotated 90 degrees, expand=True, should become ~50x100.
         rotated = service._rotate(red_image, 90)
         assert rotated.size == (50, 100)
 
@@ -141,7 +153,6 @@ class TestFilters:
         filters = models.Filters(grayscale=False, sepia=True)
         result = service._apply_filters(red_image, filters)
         r, g, b = result.getpixel((0, 0))
-        # Sepia should not be a neutral gray — R should dominate.
         assert r > g > b
 
     def test_no_filters_requested_is_a_noop(self, service, red_image):
@@ -164,7 +175,6 @@ class TestCompress:
         png_image.format = "PNG"
         result = service._compress(png_image, 40)
         # PNG is lossless; compress should return the image unchanged
-        # rather than pretending a quality setting did something.
         assert "quality" not in result.info
 
 
@@ -189,10 +199,6 @@ class TestWatermark:
         assert result.size == red_image.size
 
     def test_watermark_changes_bottom_right_region(self, service):
-        # Check a region overlapping where the watermark actually lands,
-        # rather than one exact pixel — the watermark is scaled and inset
-        # by a margin, so the literal last pixel (width-1, height-1) may
-        # legitimately fall outside it depending on image size.
         image = Image.new("RGB", (400, 400), color=(0, 0, 255))
         original_region = list(image.crop((280, 340, 400, 400)).getdata())
 
@@ -294,3 +300,101 @@ class TestDeleteImage:
 
         mock_r2.delete.assert_called_once_with([sample_image_record.id])
         mock_db.delete_image.assert_called_once_with(sample_image_record.id, "user-1")
+
+
+class TestRegisterUser:
+    def test_password_is_hashed_before_storing(self, service, mock_db, sample_user_record):
+        mock_db.create_user.return_value = sample_user_record
+
+        service.register_user("alice", "correct horse battery staple")
+
+        stored_username, stored_hash = mock_db.create_user.call_args[0]
+        assert stored_username == "alice"
+        assert stored_hash != "correct horse battery staple"
+        assert bcrypt.checkpw(
+            "correct horse battery staple".encode("utf-8"), stored_hash.encode("utf-8")
+        )
+
+    def test_returns_the_created_user(self, service, mock_db, sample_user_record):
+        mock_db.create_user.return_value = sample_user_record
+
+        result = service.register_user("alice", "password123")
+
+        assert result == sample_user_record
+
+    def test_duplicate_username_raises_409(self, service, mock_db):
+        mock_db.create_user.side_effect = DBManagerException(
+            "Duplicate username 'alice'. some pg detail"
+        )
+
+        with pytest.raises(ImageProcessingServiceException) as exc_info:
+            service.register_user("alice", "password123")
+
+        assert exc_info.value.status_code == 409
+
+    def test_other_db_failure_raises_500(self, service, mock_db):
+        mock_db.create_user.side_effect = DBManagerException("connection lost")
+
+        with pytest.raises(ImageProcessingServiceException) as exc_info:
+            service.register_user("alice", "password123")
+
+        assert exc_info.value.status_code == 500
+
+
+class TestLogin:
+    @pytest.fixture
+    def password_hash(self) -> str:
+        return bcrypt.hashpw(b"correct-password", bcrypt.gensalt()).decode("utf-8")
+
+    def test_successful_login_returns_token_and_user(
+        self, service, mock_db, sample_user_record, password_hash
+    ):
+        mock_db.get_password_hash_by_username.return_value = password_hash
+        mock_db.get_user_by_username.return_value = sample_user_record
+
+        token, user = service.login("alice", "correct-password")
+
+        assert user == sample_user_record
+        payload = jwt.decode(token, "4kYkfCyepWTQgD95FcKRd942nGdpyttpC4P3vget-xZj7s6V6aFCNkTAtsKMJeGXlbwBkqfxBoxlvV62l2c7vA", algorithms=[ALGORITHM])
+        assert payload["sub"] == sample_user_record.id
+
+    def test_unknown_username_raises_401(self, service, mock_db):
+        mock_db.get_password_hash_by_username.return_value = None
+
+        with pytest.raises(ImageProcessingServiceException) as exc_info:
+            service.login("ghost", "whatever")
+
+        assert exc_info.value.status_code == 401
+        # Should never reach get_user_by_username
+        mock_db.get_user_by_username.assert_not_called()
+
+    def test_wrong_password_raises_401(self, service, mock_db, password_hash):
+        mock_db.get_password_hash_by_username.return_value = password_hash
+
+        with pytest.raises(ImageProcessingServiceException) as exc_info:
+            service.login("alice", "totally-wrong-password")
+
+        assert exc_info.value.status_code == 401
+        mock_db.get_user_by_username.assert_not_called()
+
+    def test_db_failure_looking_up_hash_raises_500(self, service, mock_db):
+        mock_db.get_password_hash_by_username.side_effect = DBManagerException("boom")
+
+        with pytest.raises(ImageProcessingServiceException) as exc_info:
+            service.login("alice", "whatever")
+
+        assert exc_info.value.status_code == 500
+
+    def test_login_does_not_leak_which_field_was_wrong(
+        self, service, mock_db, password_hash
+    ):
+        mock_db.get_password_hash_by_username.return_value = None
+        with pytest.raises(ImageProcessingServiceException) as unknown_user_exc:
+            service.login("ghost", "whatever")
+
+        mock_db.get_password_hash_by_username.return_value = password_hash
+        with pytest.raises(ImageProcessingServiceException) as wrong_password_exc:
+            service.login("alice", "totally-wrong-password")
+
+        assert unknown_user_exc.value.status_code == wrong_password_exc.value.status_code
+        assert str(unknown_user_exc.value) == str(wrong_password_exc.value)
