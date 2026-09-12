@@ -1,0 +1,396 @@
+{
+  "info": {
+    "_postman_id": "e7339da2-47b4-4cda-925d-b5c96b46416e",
+    "name": "Image Processing Service API - E2E",
+    "description": "End-to-end workflow: register -> login -> upload -> list -> retrieve -> transform -> retrieve.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "46650330",
+    "_collection_link": "https://go.postman.co/collection/46650330-e7339da2-47b4-4cda-925d-b5c96b46416e?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "E2E workflow",
+      "item": [
+        {
+          "name": "1. Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Health returns 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('Health response is correct', () => pm.expect(body).to.eql({ status: 'ok' }));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2. Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Registration returns 200', () => pm.response.to.have.status(200));\nconst body = pm.response.json();\npm.test('Registration response has user and token', () => {\n    pm.expect(body).to.have.property('user');\n    pm.expect(body).to.have.property('token').that.is.a('string').and.not.empty;\n});\npm.test('Registered username is correct', () => pm.expect(body.user.username).to.eql(pm.collectionVariables.get('username')));\npm.collectionVariables.set('token', body.token);\npm.collectionVariables.set('user_id', String(body.user.id));"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const username =\n    `postman_e2e_${Date.now()}_${pm.variables.replaceIn('{{$randomUUID}}').slice(0, 8)}`;\n\nconst password = 'PostmanTest123!';\n\npm.collectionVariables.set('username', username);\npm.collectionVariables.set('password', password);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"{{username}}\",\"password\":\"{{password}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "register"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "3. Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();\n\npm.test('Login returns 200', () => {\n    pm.response.to.have.status(200);\n});\n\npm.test('Login response has user and token', () => {\n    pm.expect(body.user).to.be.an('object');\n    pm.expect(body.token).to.be.a('string').and.not.empty;\n});\n\npm.test('Logged-in username is correct', () => {\n    pm.expect(body.user.username)\n        .to.eql(pm.collectionVariables.get('username'));\n});\n\n// Save authenticated identity for subsequent requests\npm.collectionVariables.set('token', body.token);\npm.collectionVariables.set('user_id', String(body.user.id));\n\nconsole.log('Authenticated user_id:', pm.collectionVariables.get('user_id'));\nconsole.log('Authenticated token:', pm.collectionVariables.get('token'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"{{username}}\",\"password\":\"{{password}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "4. Upload image",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Upload returns 200', () => pm.response.to.have.status(200));\nconst body = pm.response.json();\npm.test('Upload response has image metadata', () => {\n    pm.expect(body).to.have.property('id').that.is.a('string').and.not.empty;\n    pm.expect(String(body.user_id)).to.eql(pm.collectionVariables.get('user_id'));\n    pm.expect(body.filename).to.eql('Linux.jpg');\n    pm.expect(body.width).to.be.a('number').and.above(0);\n    pm.expect(body.height).to.be.a('number').and.above(0);\n});\npm.collectionVariables.set('image_id', body.id);\npm.collectionVariables.set('original_width', String(body.width));\npm.collectionVariables.set('original_height', String(body.height));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "{{test_image}}"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/images",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "images"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "5. List images - verify upload",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('List images returns 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('List response has expected structure', () => {",
+                  "    pm.expect(body).to.have.property('images').that.is.an('array');",
+                  "    pm.expect(body).to.have.property('total').that.is.a('number');",
+                  "    pm.expect(body).to.have.property('page').that.is.a('number');",
+                  "    pm.expect(body).to.have.property('limit').that.is.a('number');",
+                  "});",
+                  "const imageId = pm.collectionVariables.get('image_id');",
+                  "const uploaded = body.images.find(image => String(image.id) === imageId);",
+                  "pm.test('Uploaded image exists in image list', () => pm.expect(uploaded).to.exist);",
+                  "pm.test('Listed image belongs to test user', () => pm.expect(String(uploaded.user_id)).to.eql(pm.collectionVariables.get('user_id')));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/images",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "images"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "6. Retrieve image",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Image retrieval returns 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Retrieved response is an image', () => pm.expect(pm.response.headers.get('Content-Type')).to.match(/^image\\//));",
+                  "pm.test('Retrieved image is not empty', () => pm.expect(pm.response.responseSize).to.be.above(0));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/images/{{image_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "images",
+                "{{image_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "7. Transform image - resize",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Transform returns 200', () => pm.response.to.have.status(200));\nconst body = pm.response.json();\npm.test('Transform response references the same image', () => pm.expect(String(body.id)).to.eql(pm.collectionVariables.get('image_id')));\npm.test('Image was resized to 640x400', () => {\n    pm.expect(body.width).to.eql(Number(pm.collectionVariables.get('transformed_width')));\n    pm.expect(body.height).to.eql(Number(pm.collectionVariables.get('transformed_height')));\n});\npm.test('Transform updates the image record', () => pm.expect(body.updated_at).to.not.eql(body.created_at));"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('transformed_width', 640);\npm.collectionVariables.set('transformed_height', 400);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transformations\": {\n    \"resize\": {\n      \"width\": 640,\n      \"height\": 400\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/images/{{image_id}}/transform",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "images",
+                "{{image_id}}",
+                "transform"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "8. Retrieve transformed image",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Transformed image retrieval returns 200', () => pm.response.to.have.status(200));\npm.test('Transformed response is an image', () => pm.expect(pm.response.headers.get('Content-Type')).to.match(/^image\\//));\npm.test('Transformed image is not empty', () => pm.expect(pm.response.responseSize).to.be.above(0));\n\n// Keep only base_url\nconst baseUrl = pm.collectionVariables.get('base_url');\npm.collectionVariables.clear();\npm.collectionVariables.set('base_url', baseUrl);\nconsole.log('Collection variables purged. Kept:', baseUrl);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/images/{{image_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "images",
+                "{{image_id}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "test_image",
+      "value": ""
+    },
+    {
+      "key": "password",
+      "value": ""
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "user_id",
+      "value": ""
+    },
+    {
+      "key": "image_id",
+      "value": ""
+    },
+    {
+      "key": "original_width",
+      "value": ""
+    },
+    {
+      "key": "original_height",
+      "value": ""
+    },
+    {
+      "key": "transformed_width",
+      "value": ""
+    },
+    {
+      "key": "transformed_height",
+      "value": ""
+    }
+  ]
+}
